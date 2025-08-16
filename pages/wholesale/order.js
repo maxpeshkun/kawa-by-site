@@ -1,329 +1,439 @@
 // pages/wholesale/order.js
 import React, { useEffect, useMemo, useState } from "react";
+import Head from "next/head";
 
-function classNames(...a){return a.filter(Boolean).join(" ");}
+// --- маленькие утилиты ---
+const cn = (...a) => a.filter(Boolean).join(" ");
+const fmtN = (n) => (n == null ? "" : String(n));
+const nowISO = () => new Date().toISOString().replace("T", " ").slice(0, 19);
 
-// ——— мини-хранилище корзины в localStorage ———
-const CART_KEY = "kawa_wholesale_cart_v1";
-function loadCart() {
-  try { return JSON.parse(localStorage.getItem(CART_KEY) || "{}"); } catch { return {}; }
-}
-function saveCart(cart) {
-  try { localStorage.setItem(CART_KEY, JSON.stringify(cart)); } catch {}
-}
+// --- примитивные UI-компоненты (без Tailwind-плагинов, только классы) ---
+const Shell = ({ children }) => (
+  <div className="min-h-screen bg-[#f8fafc] text-[#0f172a]">
+    <Head><title>Оптовый заказ — kawa.by</title></Head>
+    <header className="sticky top-0 z-20 bg-white/80 backdrop-blur border-b border-slate-100">
+      <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+        <a href="/" className="font-semibold">kawa.by — МЭР ТРЕЙД</a>
+        <nav className="text-sm flex gap-2">
+          <a href="/#catalog" className="px-3 py-2 rounded-xl hover:bg-slate-100">Каталог</a>
+          <a href="/#wholesale" className="px-3 py-2 rounded-xl hover:bg-slate-100">Оптовая заявка</a>
+          <a href="/wholesale/order" className="px-3 py-2 rounded-xl bg-slate-900 text-white">Оптовый заказ</a>
+        </nav>
+      </div>
+    </header>
+    <main className="max-w-7xl mx-auto px-4 py-6">{children}</main>
+    <footer className="border-t border-slate-100 mt-10">
+      <div className="max-w-7xl mx-auto px-4 py-6 text-sm text-slate-500">
+        © {new Date().getFullYear()} kawa.by (ООО «МЭР ТРЕЙД»)
+      </div>
+    </footer>
+  </div>
+);
 
+const Card = ({ className, children }) => (
+  <div className={cn("bg-white border border-slate-200 rounded-2xl shadow-sm p-4", className)}>{children}</div>
+);
+
+const Button = ({ children, className, ...rest }) => (
+  <button
+    {...rest}
+    className={cn(
+      "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm transition",
+      "bg-slate-900 text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed",
+      className
+    )}
+  >
+    {children}
+  </button>
+);
+
+const ButtonGhost = ({ children, className, ...rest }) => (
+  <button
+    {...rest}
+    className={cn(
+      "inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm transition",
+      "bg-transparent text-slate-900 border border-slate-200 hover:bg-slate-50 disabled:opacity-50",
+      className
+    )}
+  >
+    {children}
+  </button>
+);
+
+// ------------------ Главный экран оптового заказа ------------------
 export default function WholesaleOrderPage() {
-  const [products, setProducts] = useState([]);
-  const [loading, setLoading]   = useState(true);
-  const [err, setErr]           = useState(null);
+  // ---------- Профиль ("личный кабинет" на localStorage) ----------
+  const [profile, setProfile] = useState({
+    company: "", inn: "", contact: "", email: "", phone: "", city: "", comment: ""
+  });
 
-  // фильтры/поиск
-  const [q, setQ]     = useState("");
-  const [cat, setCat] = useState("");
-
-  // корзина: { [id]: { id, title, price, stock, qty } }
-  const [cart, setCart] = useState({});
-
-  // контактные данные
-  const [form, setForm] = useState({ company:"", contact:"", phone:"", email:"", comment:"" });
-  const [submitting, setSubmitting] = useState(false);
-  const [result, setResult] = useState(null); // {ok,msg,orderId}
-
-  // загрузка каталога
   useEffect(() => {
-    let alive = true;
-    const load = async () => {
+    try {
+      const raw = localStorage.getItem("whProfile");
+      if (raw) {
+        const saved = JSON.parse(raw);
+        setProfile((p) => ({ ...p, ...saved }));
+      }
+    } catch {}
+  }, []);
+
+  const saveProfile = () => {
+    localStorage.setItem("whProfile", JSON.stringify(profile));
+  };
+
+  // ---------- Каталог ----------
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState(null);
+  const [products, setProducts] = useState([]);
+
+  useEffect(() => {
+    let ok = true;
+    (async () => {
       setLoading(true); setErr(null);
       try {
         const r = await fetch("/api/b2b-products", { cache: "no-store" });
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const data = await r.json();
-        if (alive) setProducts(Array.isArray(data.products) ? data.products : []);
-      } catch(e) {
-        if (alive) setErr(String(e?.message || e));
+        if (ok) setProducts(Array.isArray(data.products) ? data.products : []);
+      } catch (e) {
+        if (ok) setErr(String(e?.message || e));
       } finally {
-        if (alive) setLoading(false);
+        if (ok) setLoading(false);
       }
-    };
-    load();
-    return () => { alive = false; };
+    })();
+    return () => { ok = false; };
   }, []);
 
-  // восстановление корзины
-  useEffect(() => {
-    const initial = loadCart();
-    setCart(initial);
-  }, []);
+  // поиск/фильтры
+  const [q, setQ] = useState("");
+  const [cat, setCat] = useState("");
+  const cats = useMemo(() => Array.from(new Set(products.map(p => p.category))).filter(Boolean), [products]);
 
-  // сохранение корзины
-  useEffect(() => { saveCart(cart); }, [cart]);
-
-  const cats = useMemo(() => Array.from(new Set(products.map(p=>p.category))).filter(Boolean), [products]);
-
-  const filtered = useMemo(() => {
-    const ql = q.trim().toLowerCase();
-    return products.filter(p =>
+  const filtered = useMemo(() =>
+    products.filter(p =>
       (!cat || p.category === cat) &&
-      (!ql || (p.title || "").toLowerCase().includes(ql))
-    );
-  }, [products, cat, q]);
+      (!q || (p.title || "").toLowerCase().includes(q.toLowerCase()))
+    ), [products, cat, q]);
 
-  // добавить в корзину с ограничением по остаткам
-  function addToCart(p, delta=1) {
-    setCart(prev => {
-      const cur = prev[p.id]?.qty || 0;
-      const stock = Number.isFinite(p.stock) && p.stock >= 0 ? p.stock : Infinity;
-      const nextQty = Math.max(0, Math.min(cur + delta, stock));
-      const next = { ...prev };
-      if (nextQty === 0) {
-        delete next[p.id];
-      } else {
-        next[p.id] = {
-          id: p.id,
-          title: p.title,
-          price: p.price ?? 0,
-          stock: stock === Infinity ? null : stock,
-          qty: nextQty,
-        };
-      }
+  // ---------- Корзина ----------
+  const [cart, setCart] = useState([]);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("whCart");
+      if (raw) setCart(JSON.parse(raw));
+    } catch {}
+  }, []);
+  useEffect(() => {
+    localStorage.setItem("whCart", JSON.stringify(cart));
+  }, [cart]);
+
+  const stockOf = (id) => {
+    const p = products.find(x => x.id === id);
+    const stock = Number(p?.stock ?? 0);
+    return Number.isFinite(stock) ? Math.max(0, stock) : 0;
+  };
+
+  const addToCart = (p, qty) => {
+    const want = Math.max(1, Math.floor(Number(qty || 1)));
+    const max = stockOf(p.id);
+    setCart((prev) => {
+      const exists = prev.find(x => x.id === p.id);
+      const already = exists ? exists.qty : 0;
+      const allowed = Math.max(0, Math.min(max, already + want));
+      const add = allowed - already;
+      if (add <= 0) return prev; // нельзя превысить остаток
+      const next = exists
+        ? prev.map(x => x.id === p.id ? { ...x, qty: x.qty + add } : x)
+        : [...prev, { id: p.id, title: p.title, price: +p.price || 0, qty: add, category: p.category, pack: p.pack }];
       return next;
     });
-  }
+  };
 
-  function setQty(p, qtyRaw) {
-    const qty = Math.max(0, parseInt(qtyRaw || "0", 10) || 0);
-    const stock = Number.isFinite(p.stock) && p.stock >= 0 ? p.stock : Infinity;
-    const clamped = Math.min(qty, stock);
-    setCart(prev => {
-      const next = { ...prev };
-      if (clamped === 0) delete next[p.id];
-      else next[p.id] = { id: p.id, title: p.title, price: p.price ?? 0, stock: stock === Infinity ? null : stock, qty: clamped };
-      return next;
-    });
-  }
+  const setQty = (id, qtyRaw) => {
+    const qty = Math.max(0, Math.floor(Number(qtyRaw || 0)));
+    const max = stockOf(id);
+    const clamped = Math.min(qty, max);
+    setCart((prev) => prev.map(x => x.id === id ? { ...x, qty: clamped } : x).filter(x => x.qty > 0));
+  };
 
-  const items = Object.values(cart);
-  const totalQty = items.reduce((s,i)=>s+i.qty,0);
-  const totalSum = items.reduce((s,i)=>s+(Number(i.price||0)*i.qty),0);
+  const removeFromCart = (id) => setCart((prev) => prev.filter(x => x.id !== id));
+  const clearCart = () => setCart([]);
 
-  async function submitOrder(e){
-    e.preventDefault();
-    setResult(null);
+  const total = useMemo(() => cart.reduce((s, x) => s + (x.price * x.qty), 0), [cart]);
 
-    if (items.length === 0) {
-      setResult({ ok:false, msg:"Добавь товары в корзину" });
-      return;
-    }
-    const errs = {};
-    if (!form.company.trim()) errs.company = "Компания";
-    if (!form.contact.trim()) errs.contact = "Контакт";
-    if (!form.phone.trim())   errs.phone   = "Телефон";
-    if (!/.+@.+\..+/.test(form.email)) errs.email = "Email";
-    if (Object.keys(errs).length) {
-      setResult({ ok:false, msg:"Заполни: " + Object.values(errs).join(", ") });
-      return;
-    }
+  // ---------- История заказов (localStorage) ----------
+  const [orders, setOrders] = useState([]);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("whOrders");
+      if (raw) setOrders(JSON.parse(raw));
+    } catch {}
+  }, []);
+  const pushOrderToHistory = (order) => {
+    const next = [order, ...orders].slice(0, 100);
+    setOrders(next);
+    localStorage.setItem("whOrders", JSON.stringify(next));
+  };
 
-    // защита: не больше остатка
-    for (const i of items) {
-      if (i.stock != null && i.qty > i.stock) {
-        setResult({ ok:false, msg:`Товар «${i.title}» превышает остаток (${i.stock})` });
+  // ---------- Оформление заказа ----------
+  const [submitting, setSubmitting] = useState(false);
+  const [submitMsg, setSubmitMsg] = useState(null);
+
+  const canCheckout = cart.length > 0 && profile.company && profile.email && profile.phone;
+
+  const onSubmitOrder = async () => {
+    setSubmitMsg(null);
+
+    // финальная проверка остатков
+    for (const line of cart) {
+      const max = stockOf(line.id);
+      if (line.qty > max) {
+        setSubmitMsg({ ok: false, text: `Товар «${line.title}»: максимум ${max} шт.` });
         return;
       }
     }
 
+    // “фиксация” профиля
+    saveProfile();
+
+    const payload = {
+      kind: "wholesale-order",
+      placed_at: nowISO(),
+      profile,
+      items: cart.map(({ id, title, qty, price }) => ({ id, title, qty, price })),
+      total
+    };
+
     try {
       setSubmitting(true);
-      const resp = await fetch("/api/orders", {
+      // отправим в уже существующий эндпоинт (договорились раньше, что он принимает JSON)
+      const r = await fetch("/api/wholesale-apply", {
         method: "POST",
-        headers: { "Content-Type":"application/json" },
-        body: JSON.stringify({
-          customer: form,
-          items: items.map(i => ({ id:i.id, title:i.title, price:i.price, qty:i.qty })),
-          totalQty, totalSum
-        })
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
       });
-      const data = await resp.json().catch(()=>({}));
-      if (!resp.ok) throw new Error(data?.error || `HTTP ${resp.status}`);
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data?.error || `HTTP ${r.status}`);
 
-      setResult({ ok:true, msg:"Заказ оформлен. Мы свяжемся с тобой для подтверждения.", orderId: data.orderId });
-      // почистим корзину
-      setCart({});
-    } catch(e) {
-      setResult({ ok:false, msg:`Ошибка оформления: ${String(e?.message||e)}` });
+      const order = {
+        id: `ORD-${Date.now()}`,
+        ...payload,
+        status: "Отправлен",
+      };
+      pushOrderToHistory(order);
+      clearCart();
+      setSubmitMsg({ ok: true, text: "Заказ отправлен! Мы свяжемся с вами по указанным контактам." });
+    } catch (e) {
+      setSubmitMsg({ ok: false, text: `Не удалось отправить заказ: ${String(e?.message || e)}` });
     } finally {
       setSubmitting(false);
     }
-  }
+  };
 
+  // ------------------- Рендер -------------------
   return (
-    <div className="min-h-screen bg-gradient-to-b from-white to-gray-50 text-gray-900">
-      <div className="mx-auto max-w-7xl px-4 py-6">
-        <div className="flex items-center justify-between gap-4 flex-wrap">
-          <h1 className="text-2xl font-bold">Оптовый заказ</h1>
-          <a href="/" className="text-sm underline">На главную</a>
-        </div>
-
-        {/* Поиск/фильтры */}
-        <div className="mt-4 grid md:grid-cols-4 gap-3">
-          <div className="md:col-span-3 grid sm:grid-cols-3 gap-3">
-            <input
-              value={q}
-              onChange={e=>setQ(e.target.value)}
-              placeholder="Поиск по названию"
-              className="rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300"
-            />
-            <select
-              value={cat}
-              onChange={e=>setCat(e.target.value)}
-              className="rounded-xl border border-gray-200 px-3 py-2 text-sm bg-white"
-            >
-              <option value="">Все категории</option>
-              {cats.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
-            <button
-              onClick={()=>{ setQ(""); setCat(""); }}
-              className="rounded-xl border px-4 py-2 text-sm hover:bg-gray-50"
-            >
-              Сбросить
-            </button>
-          </div>
-
-          {/* Корзина (сводка) */}
-          <div className="md:col-span-1 rounded-2xl border border-gray-100 bg-white p-4">
-            <div className="font-semibold">Корзина</div>
-            <div className="text-sm text-gray-600 mt-1">Позиций: {items.length}, шт: {totalQty}</div>
-            <div className="text-lg font-semibold mt-1">{totalSum.toFixed(2)} BYN</div>
-            {items.length>0 && (
-              <button
-                onClick={()=>setCart({})}
-                className="mt-2 text-sm underline"
-              >
+    <Shell>
+      <div className="grid lg:grid-cols-3 gap-4">
+        {/* Профиль */}
+        <Card className="lg:col-span-1">
+          <div className="font-semibold mb-3">Профиль (для выставления счёта)</div>
+          <div className="grid gap-2">
+            <input className="border border-slate-200 rounded-xl px-3 py-2 text-sm" placeholder="Компания*"
+                   value={profile.company} onChange={(e)=>setProfile({...profile, company: e.target.value})}/>
+            <input className="border border-slate-200 rounded-xl px-3 py-2 text-sm" placeholder="УНП / ИНН"
+                   value={profile.inn} onChange={(e)=>setProfile({...profile, inn: e.target.value})}/>
+            <input className="border border-slate-200 rounded-xl px-3 py-2 text-sm" placeholder="Контактное лицо"
+                   value={profile.contact} onChange={(e)=>setProfile({...profile, contact: e.target.value})}/>
+            <input className="border border-slate-200 rounded-xl px-3 py-2 text-sm" placeholder="Email*"
+                   value={profile.email} onChange={(e)=>setProfile({...profile, email: e.target.value})}/>
+            <input className="border border-slate-200 rounded-xl px-3 py-2 text-sm" placeholder="Телефон*"
+                   value={profile.phone} onChange={(e)=>setProfile({...profile, phone: e.target.value})}/>
+            <input className="border border-slate-200 rounded-xl px-3 py-2 text-sm" placeholder="Город"
+                   value={profile.city} onChange={(e)=>setProfile({...profile, city: e.target.value})}/>
+            <input className="border border-slate-200 rounded-xl px-3 py-2 text-sm" placeholder="Комментарий"
+                   value={profile.comment} onChange={(e)=>setProfile({...profile, comment: e.target.value})}/>
+            <div className="flex gap-2">
+              <ButtonGhost onClick={saveProfile}>Сохранить профиль</ButtonGhost>
+              <ButtonGhost onClick={() => { localStorage.removeItem("whProfile"); setProfile({company:"",inn:"",contact:"",email:"",phone:"",city:"",comment:""}); }}>
                 Очистить
-              </button>
-            )}
+              </ButtonGhost>
+            </div>
           </div>
-        </div>
+        </Card>
 
-        {/* Сообщения */}
-        <div className="mt-4">
-          {loading && <div className="rounded-xl border p-4">Загрузка каталога…</div>}
-          {err && <div className="rounded-xl border p-4 bg-amber-50 border-amber-200 text-amber-800">Ошибка: {err}</div>}
-        </div>
-
-        {/* Каталог */}
-        {!loading && !err && (
-          <div className="mt-4 grid lg:grid-cols-3 gap-3">
-            <div className="lg:col-span-2 grid gap-3">
-              {filtered.length === 0 && (
-                <div className="rounded-xl border p-4">Ничего не найдено</div>
-              )}
-              {filtered.map(p => {
-                const inCart = cart[p.id]?.qty || 0;
-                const stock = Number.isFinite(p.stock) && p.stock >= 0 ? p.stock : null;
-                const canPlus = stock == null ? true : inCart < stock;
-                return (
-                  <div key={p.id} className="rounded-2xl border border-gray-100 bg-white p-4 flex gap-3">
-                    <div className="h-16 w-16 rounded-xl bg-gray-100 grid place-items-center overflow-hidden shrink-0">
-                      {p.image ? <img src={p.image} alt={p.title} className="object-cover w-full h-full" /> : <span className="text-xs text-gray-500">img</span>}
-                    </div>
-                    <div className="flex-1">
-                      <div className="font-semibold">{p.title}</div>
-                      <div className="text-sm text-gray-600">
-                        {(p.category || "—")}{p.brand ? ` • ${p.brand}` : ""}{p.pack ? ` • ${p.pack}` : ""}
-                      </div>
-                      <div className="mt-1 text-sm">
-                        {p.price != null && <>Цена: <b>{p.price}</b> BYN</>}
-                        {p.stock != null && <> · Остаток: <b>{p.stock}</b></>}
-                      </div>
-
-                      <div className="mt-2 flex items-center gap-2">
-                        <button
-                          className="px-3 py-1 rounded-xl border hover:bg-gray-50"
-                          onClick={()=>addToCart(p, -1)}
-                          disabled={inCart===0}
-                        >−</button>
-                        <input
-                          className="w-16 text-center rounded-xl border px-2 py-1"
-                          value={inCart || ""}
-                          onChange={e=>setQty(p, e.target.value)}
-                          placeholder="0"
-                          inputMode="numeric"
-                        />
-                        <button
-                          className="px-3 py-1 rounded-xl border hover:bg-gray-50 disabled:opacity-50"
-                          onClick={()=>addToCart(p, +1)}
-                          disabled={!canPlus}
-                        >+</button>
-
-                        <button
-                          className="ml-2 px-4 py-1.5 rounded-xl border hover:bg-gray-50"
-                          onClick={()=>setQty(p, 0)}
-                          disabled={inCart===0}
-                        >
-                          Убрать
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+        {/* Каталог + Поиск */}
+        <div className="lg:col-span-2 grid gap-4">
+          <Card>
+            <div className="font-semibold mb-3">Каталог (опт)</div>
+            <div className="grid md:grid-cols-3 gap-2 mb-3">
+              <input
+                className="border border-slate-200 rounded-xl px-3 py-2 text-sm"
+                placeholder="Поиск по названию"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+              />
+              <select
+                className="border border-slate-200 rounded-xl px-3 py-2 text-sm"
+                value={cat}
+                onChange={(e)=>setCat(e.target.value)}
+              >
+                <option value="">Все категории</option>
+                {cats.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <ButtonGhost onClick={()=>{setQ(""); setCat("");}}>Сбросить фильтры</ButtonGhost>
             </div>
 
-            {/* Оформление */}
-            <div className="lg:col-span-1">
-              <form onSubmit={submitOrder} className="rounded-2xl border border-gray-100 bg-white p-4 grid gap-3 sticky top-6">
-                <div className="font-semibold">Оформление</div>
-                {result && (
-                  <div className={classNames(
-                    "rounded-xl px-3 py-2 text-sm",
-                    result.ok ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
-                              : "bg-amber-50 text-amber-800 border border-amber-200"
-                  )}>
-                    {result.msg}{result.orderId ? ` (№${result.orderId})` : ""}
+            {loading && <div className="text-sm text-slate-500">Загрузка каталога…</div>}
+            {err && <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">{err}</div>}
+
+            {!loading && !err && (
+              <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-3">
+                {filtered.map((p) => {
+                  const max = stockOf(p.id);
+                  const [qty, setLocalQty] = useState ? useState(1) : [1, () => {}]; // защитный хак для рендер-цикла
+                  // но useState в map нельзя; сделаем простым контролем через dataset:
+                  return (
+                    <div className="border border-slate-200 rounded-2xl p-3" key={p.id}>
+                      <div className="text-sm text-slate-500 mb-1">{p.category || "—"}</div>
+                      <div className="font-medium">{p.title}</div>
+                      <div className="text-xs text-slate-500">{p.pack || ""}</div>
+                      <div className="mt-2 text-sm">
+                        {p.price != null ? <>Цена: <b>{p.price}</b></> : "Цена: —"}
+                        <span className="text-slate-500"> · Остаток: {max}</span>
+                      </div>
+                      <div className="mt-3 flex items-center gap-2">
+                        <input
+                          type="number"
+                          min={1}
+                          max={max}
+                          defaultValue={1}
+                          data-id={p.id}
+                          className="w-20 border border-slate-200 rounded-xl px-2 py-2 text-sm"
+                          onChange={(e) => {
+                            const v = Math.max(1, Math.min(max, Math.floor(Number(e.target.value || 1))));
+                            e.currentTarget.value = String(v);
+                          }}
+                        />
+                        <Button
+                          disabled={max <= 0}
+                          onClick={(e) => {
+                            const input = e.currentTarget.parentElement.querySelector("input[data-id]");
+                            const want = Math.max(1, Math.min(max, Math.floor(Number(input?.value || 1))));
+                            addToCart(p, want);
+                          }}
+                        >
+                          В корзину
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </Card>
+
+          {/* Корзина */}
+          <Card>
+            <div className="font-semibold mb-3">Корзина</div>
+            {cart.length === 0 ? (
+              <div className="text-sm text-slate-500">Корзина пуста</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                  <tr className="text-left text-slate-500">
+                    <th className="py-2 pr-2">Товар</th>
+                    <th className="py-2 pr-2">Цена</th>
+                    <th className="py-2 pr-2">Кол-во</th>
+                    <th className="py-2 pr-2">Сумма</th>
+                    <th className="py-2"></th>
+                  </tr>
+                  </thead>
+                  <tbody>
+                  {cart.map((x) => {
+                    const max = stockOf(x.id);
+                    return (
+                      <tr key={x.id} className="border-t border-slate-100">
+                        <td className="py-2 pr-2">
+                          <div className="font-medium">{x.title}</div>
+                          <div className="text-xs text-slate-500">Макс. {max} шт.</div>
+                        </td>
+                        <td className="py-2 pr-2">{fmtN(x.price)}</td>
+                        <td className="py-2 pr-2">
+                          <input
+                            type="number"
+                            min={0}
+                            max={max}
+                            value={x.qty}
+                            onChange={(e)=>setQty(x.id, e.target.value)}
+                            className="w-24 border border-slate-200 rounded-xl px-2 py-1"
+                          />
+                        </td>
+                        <td className="py-2 pr-2">{fmtN((x.price||0) * (x.qty||0))}</td>
+                        <td className="py-2">
+                          <ButtonGhost onClick={()=>removeFromCart(x.id)}>Убрать</ButtonGhost>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  </tbody>
+                </table>
+                <div className="mt-3 flex items-center justify-between">
+                  <div className="text-sm text-slate-500">Итого позиций: {cart.length}</div>
+                  <div className="text-lg font-semibold">Итого: {fmtN(total)}</div>
+                </div>
+                <div className="mt-3 flex gap-2">
+                  <ButtonGhost onClick={clearCart}>Очистить корзину</ButtonGhost>
+                  <Button disabled={!canCheckout || submitting} onClick={onSubmitOrder}>
+                    {submitting ? "Отправка…" : "Оформить заказ"}
+                  </Button>
+                </div>
+                {submitMsg && (
+                  <div
+                    className={cn(
+                      "mt-3 rounded-xl px-3 py-2 text-sm border",
+                      submitMsg.ok
+                        ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                        : "bg-amber-50 text-amber-800 border-amber-200"
+                    )}
+                  >
+                    {submitMsg.text}
                   </div>
                 )}
-                <input
-                  placeholder="Компания*"
-                  className="rounded-xl border px-3 py-2 text-sm"
-                  value={form.company} onChange={e=>setForm({...form, company:e.target.value})}
-                />
-                <input
-                  placeholder="Контактное лицо*"
-                  className="rounded-xl border px-3 py-2 text-sm"
-                  value={form.contact} onChange={e=>setForm({...form, contact:e.target.value})}
-                />
-                <input
-                  placeholder="Телефон*"
-                  className="rounded-xl border px-3 py-2 text-sm"
-                  value={form.phone} onChange={e=>setForm({...form, phone:e.target.value})}
-                />
-                <input
-                  placeholder="Email*"
-                  className="rounded-xl border px-3 py-2 text-sm"
-                  value={form.email} onChange={e=>setForm({...form, email:e.target.value})}
-                />
-                <textarea
-                  placeholder="Комментарий"
-                  className="rounded-xl border px-3 py-2 text-sm"
-                  rows={3}
-                  value={form.comment} onChange={e=>setForm({...form, comment:e.target.value})}
-                />
-                <button
-                  type="submit"
-                  disabled={submitting || items.length===0}
-                  className="rounded-2xl px-4 py-2 text-sm bg-gray-900 text-white disabled:opacity-60"
-                >
-                  {submitting ? "Отправка…" : `Оформить заказ (${totalSum.toFixed(2)} BYN)`}
-                </button>
-                <div className="text-xs text-gray-500">
-                  Нажимая кнопку, ты подтверждаешь корректность данных. Лимит добавления в корзину не превышает текущих остатков.
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
+              </div>
+            )}
+          </Card>
+
+          {/* История заказов */}
+          <Card>
+            <div className="font-semibold mb-3">История заказов (локально)</div>
+            {orders.length === 0 ? (
+              <div className="text-sm text-slate-500">Пока нет заказов</div>
+            ) : (
+              <div className="grid gap-3">
+                {orders.map((o) => (
+                  <div key={o.id} className="border border-slate-200 rounded-xl p-3">
+                    <div className="flex items-center justify-between">
+                      <div className="font-medium">{o.id}</div>
+                      <div className="text-sm">{o.placed_at}</div>
+                    </div>
+                    <div className="text-sm text-slate-600">Статус: {o.status}</div>
+                    <div className="mt-2 text-sm">
+                      {o.items.map((i) => (
+                        <div key={i.id} className="flex justify-between">
+                          <span>{i.title} × {i.qty}</span>
+                          <span>{fmtN(i.price * i.qty)}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-2 font-semibold">Итого: {fmtN(o.total)}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+        </div>
       </div>
-    </div>
+    </Shell>
   );
 }
