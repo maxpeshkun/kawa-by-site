@@ -1,0 +1,1 @@
+# KAWA.BY – сайт\n\nУстановка: npm i\nЗапуск: npm run dev\nСборка: npm run build\n

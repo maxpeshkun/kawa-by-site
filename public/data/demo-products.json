@@ -1,0 +1,42 @@
+[
+  {
+    "id": "1",
+    "title": "KAWA Espresso 1kg",
+    "category": "Кофе",
+    "brand": "KAWA",
+    "pack": "1 кг",
+    "tags": [
+      "зерно",
+      "арабика"
+    ],
+    "price": 25.9,
+    "stock": 120,
+    "image": ""
+  },
+  {
+    "id": "2",
+    "title": "KAWA Black Tea 100",
+    "category": "Чай",
+    "brand": "KAWA",
+    "pack": "100 пак.",
+    "tags": [
+      "чёрный"
+    ],
+    "price": 7.9,
+    "stock": 342,
+    "image": ""
+  },
+  {
+    "id": "3",
+    "title": "Средство для посуды 500мл",
+    "category": "Бытовая химия",
+    "brand": "CleanUp",
+    "pack": "500 мл",
+    "tags": [
+      "эко"
+    ],
+    "price": 3.2,
+    "stock": 87,
+    "image": ""
+  }
+]
