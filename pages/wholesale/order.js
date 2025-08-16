@@ -1,23 +1,54 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { getJSON, setJSON } from "@/lib/safeStorage";
 
-/**
- * Страница оформления оптового заказа
- * - Подтягивает товары с /api/b2b-products (или /data/b2b-products.json если API вернул ошибку)
- * - Поиск + фильтр по категориям
- * - Добавление в корзину с ограничением по остатку
- * - Корзина с редактированием количества, удалением, очисткой
- * - Сохранение корзины в localStorage (через safeStorage)
- * - Отправка заказа на /api/cart-submit (заглушка отвечает 200)
- */
-
 const STORAGE_KEY = "kawa.cart.v1";
 
-function classNames(...a) {
-  return a.filter(Boolean).join(" ");
-}
+function classNames(...a) { return a.filter(Boolean).join(" "); }
 
 export default function WholesaleOrderPage() {
+  // ---- auth guard ----
+  const [user, setUser] = useState(undefined); // undefined = загрузка, null = не авторизован, {email} = ок
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const r = await fetch("/api/auth/me", { cache: "no-store" });
+        if (!alive) return;
+        if (r.ok) {
+          const d = await r.json().catch(()=> ({}));
+          setUser(d?.user || null);
+        } else {
+          setUser(null);
+        }
+      } catch {
+        if (alive) setUser(null);
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  // показать спиннер/карту входа
+  if (user === undefined) {
+    return <div className="min-h-screen grid place-items-center text-gray-600">Загрузка…</div>;
+  }
+  if (user === null) {
+    const next = encodeURIComponent("/wholesale/order");
+    return (
+      <div className="min-h-screen grid place-items-center bg-gradient-to-b from-white to-gray-50 px-4">
+        <div className="w-full max-w-md rounded-2xl border border-gray-100 bg-white p-6 shadow-sm text-center">
+          <div className="text-xl font-semibold">Нужна авторизация</div>
+          <div className="text-sm text-gray-600 mt-1">Чтобы оформить оптовый заказ, войдите в аккаунт.</div>
+          <a
+            href={`/auth/login?next=${next}`}
+            className="mt-4 inline-flex rounded-xl px-4 py-2 text-sm bg-gray-900 text-white hover:opacity-90"
+          >
+            Войти
+          </a>
+        </div>
+      </div>
+    );
+  }
+
   // ----- каталог -----
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
@@ -26,8 +57,7 @@ export default function WholesaleOrderPage() {
   useEffect(() => {
     let alive = true;
     const load = async () => {
-      setLoading(true);
-      setErr(null);
+      setLoading(true); setErr(null);
       try {
         const resp = await fetch("/api/b2b-products", { cache: "no-store" });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
@@ -35,7 +65,6 @@ export default function WholesaleOrderPage() {
         const list = Array.isArray(data?.products) ? data.products : [];
         if (alive) setProducts(list);
       } catch (e) {
-        // fallback на статичный файл, чтобы не блокировать работу
         try {
           const r2 = await fetch("/data/b2b-products.json", { cache: "no-store" });
           const d2 = await r2.json();
@@ -86,14 +115,8 @@ export default function WholesaleOrderPage() {
     return idx;
   }, [cart]);
 
-  const cartTotalQty = useMemo(
-    () => cart.reduce((s, r) => s + (r.qty || 0), 0),
-    [cart]
-  );
-  const cartTotalSum = useMemo(
-    () => cart.reduce((s, r) => s + (Number(r.price || 0) * (r.qty || 0)), 0),
-    [cart]
-  );
+  const cartTotalQty = useMemo(() => cart.reduce((s, r) => s + (r.qty || 0), 0), [cart]);
+  const cartTotalSum = useMemo(() => cart.reduce((s, r) => s + (Number(r.price || 0) * (r.qty || 0)), 0), [cart]);
 
   function addToCart(p, addQty = 1) {
     const stock = Number.isFinite(p.stock) ? Math.max(0, Number(p.stock)) : 0;
@@ -128,13 +151,8 @@ export default function WholesaleOrderPage() {
     });
   }
 
-  function removeFromCart(id) {
-    setCart((prev) => prev.filter((r) => r.id !== id));
-  }
-
-  function clearCart() {
-    setCart([]);
-  }
+  function removeFromCart(id) { setCart((prev) => prev.filter((r) => r.id !== id)); }
+  function clearCart() { setCart([]); }
 
   // ----- отправка заказа (заглушка) -----
   const [submitting, setSubmitting] = useState(false);
@@ -146,6 +164,7 @@ export default function WholesaleOrderPage() {
     try {
       setSubmitting(true);
       const payload = {
+        user: { email: user?.email || "" },
         items: cart.map((r) => ({ id: r.id, qty: r.qty, price: r.price })),
         total_qty: cartTotalQty,
         total_sum: cartTotalSum,
@@ -167,18 +186,20 @@ export default function WholesaleOrderPage() {
     }
   }
 
-  // ----- UI -----
   return (
     <div className="min-h-screen bg-gradient-to-b from-white to-gray-50 text-gray-900">
       <div className="mx-auto max-w-7xl px-4 py-6">
         <div className="flex items-end justify-between flex-wrap gap-3">
           <h1 className="text-2xl md:text-3xl font-bold">Оформление оптового заказа</h1>
           <div className="text-sm text-gray-600">
-            В корзине: <b>{cartTotalQty}</b> шт · <b>{cartTotalSum.toFixed(2)}</b>
+            Вы вошли как <b>{user.email}</b>
+            <form className="inline ml-3" onSubmit={async (e)=>{e.preventDefault(); await fetch("/api/auth/logout",{method:"POST"}); window.location.reload();}}>
+              <button className="text-gray-500 underline">Выйти</button>
+            </form>
           </div>
         </div>
 
-        {/* фильтры */}
+        {/* Фильтры */}
         <div className="mt-4 grid gap-3 md:grid-cols-3">
           <div className="md:col-span-2">
             <input
@@ -195,14 +216,14 @@ export default function WholesaleOrderPage() {
               className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm bg-white"
             >
               <option value="">Все категории</option>
-              {categories.map((c) => (
+              {Array.from(new Set(products.map(p=>p.category).filter(Boolean))).sort().map((c) => (
                 <option key={c} value={c}>{c}</option>
               ))}
             </select>
           </div>
         </div>
 
-        {/* каталог */}
+        {/* Каталог */}
         <div className="mt-4">
           {loading && <div className="rounded-2xl border border-gray-100 bg-white p-4">Загрузка каталога…</div>}
           {err && !loading && (
@@ -264,7 +285,7 @@ export default function WholesaleOrderPage() {
           </div>
         </div>
 
-        {/* корзина */}
+        {/* Корзина */}
         <div className="mt-8">
           <div className="rounded-2xl border border-gray-100 bg-white p-4">
             <div className="flex items-center justify-between flex-wrap gap-3">
@@ -293,7 +314,7 @@ export default function WholesaleOrderPage() {
                     {cart.map((r) => {
                       const max = Number.isFinite(r.stock) ? Math.max(0, Number(r.stock)) : 0;
                       return (
-                        <tr key={r.id} className="border-t border-gray-100">
+                        <tr key={r.id} className="border-top border-gray-100">
                           <td className="py-2 pr-3">
                             <div className="font-medium">{r.title}</div>
                             <div className="text-xs text-gray-500">{r.pack || ""}</div>
@@ -306,9 +327,7 @@ export default function WholesaleOrderPage() {
                                 className="rounded-lg px-2 py-1 border border-gray-200"
                                 onClick={() => setQty(r.id, (r.qty || 0) - 1)}
                                 aria-label="Убавить"
-                              >
-                                −
-                              </button>
+                              >−</button>
                               <input
                                 className="w-16 rounded-lg border border-gray-200 px-2 py-1 text-sm"
                                 type="number"
@@ -322,9 +341,7 @@ export default function WholesaleOrderPage() {
                                 onClick={() => setQty(r.id, Math.min(max, (r.qty || 0) + 1))}
                                 disabled={(r.qty || 0) >= max}
                                 aria-label="Прибавить"
-                              >
-                                +
-                              </button>
+                              >+</button>
                             </div>
                           </td>
                           <td className="py-2 pr-3 whitespace-nowrap">
@@ -345,10 +362,7 @@ export default function WholesaleOrderPage() {
                 </table>
 
                 <div className="mt-4 flex items-center justify-between flex-wrap gap-3">
-                  <button
-                    className="rounded-xl px-4 py-2 text-sm border border-gray-200 hover:bg-gray-50"
-                    onClick={clearCart}
-                  >
+                  <button className="rounded-xl px-4 py-2 text-sm border border-gray-200 hover:bg-gray-50" onClick={clearCart}>
                     Очистить корзину
                   </button>
                   <button
