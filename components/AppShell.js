@@ -6,6 +6,9 @@ import {
   ShoppingCart, Layers3, Store, Phone
 } from "lucide-react";
 
+// общий ключ локального хранилища для корзины wholesale
+const CART_KEY = "kawa_wholesale_cart_v1";
+
 // ---------- Конфиг ----------
 const YA_API_KEY =
   process.env.NEXT_PUBLIC_YA_API_KEY || "c765fc15-42cc-43b2-9c84-a705a4c4f2b0";
@@ -236,8 +239,8 @@ const Card = ({ children, className }) => (
   <div className={classNames("rounded-2xl border border-gray-100 shadow-sm bg-white p-4", className)}>{children}</div>
 );
 
-const Button = ({ children, onClick, variant = "solid", className = "", type = "button" }) => {
-  const base = "inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-sm transition hover:opacity-90";
+const Button = ({ children, onClick, variant = "solid", className = "", type = "button", disabled }) => {
+  const base = "inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-sm transition hover:opacity-90 disabled:opacity-50";
   const styles =
     variant === "solid"
       ? "bg-gray-900 text-white"
@@ -245,7 +248,7 @@ const Button = ({ children, onClick, variant = "solid", className = "", type = "
       ? "bg-transparent text-gray-900 hover:bg-gray-100"
       : "bg-white border border-gray-200";
   return (
-    <button type={type} onClick={onClick} className={classNames(base, styles, className)}>
+    <button type={type} onClick={onClick} disabled={disabled} className={classNames(base, styles, className)}>
       {children}
     </button>
   );
@@ -272,6 +275,28 @@ const Select = ({ value, onChange, options, placeholder }) => (
 
 // ---------- Шапка/подвал ----------
 function Header({ current, navigate }) {
+  // маленький индикатор позиций в корзине (из /wholesale/order)
+  const [cartCount, setCartCount] = React.useState(0);
+
+  React.useEffect(() => {
+    const readCount = () => {
+      try {
+        const raw = localStorage.getItem(CART_KEY);
+        const obj = raw ? JSON.parse(raw) : {};
+        const items = Object.values(obj || {});
+        const count = items.reduce((s, i) => s + (i?.qty || 0), 0);
+        setCartCount(count);
+      } catch {
+        setCartCount(0);
+      }
+    };
+    readCount();
+    const onStorage = (e) => { if (!e || e.key === CART_KEY) readCount(); };
+    window.addEventListener("storage", onStorage);
+    const t = setInterval(readCount, 3000);
+    return () => { window.removeEventListener("storage", onStorage); clearInterval(t); };
+  }, []);
+
   const links = [
     { id: "home", label: "Главная" },
     { id: "locations", label: "Точки продаж" },
@@ -283,7 +308,7 @@ function Header({ current, navigate }) {
 
   return (
     <div className="sticky top-0 z-20 backdrop-blur bg-white/70 border-b border-gray-100">
-      <div className="mx-auto max-w-7xl px-4 py-3 flex items-center justify-between">
+      <div className="mx-auto max-w-7xl px-4 py-3 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <button
             onClick={() => navigate("home")}
@@ -301,27 +326,50 @@ function Header({ current, navigate }) {
           </button>
         </div>
 
-        <nav className="hidden md:flex items-center gap-2">
-          {links.map((l) => (
-            <button
-              key={l.id}
-              onClick={() => navigate(l.id)}
-              className={classNames(
-                "px-3 py-2 rounded-xl text-sm",
-                current === l.id ? "bg-gray-900 text-white" : "hover:bg-gray-100"
-              )}
-            >
-              {l.label}
-            </button>
-          ))}
-        </nav>
+        {/* десктоп-меню + кнопка оптового заказа */}
+        <div className="hidden md:flex items-center gap-2">
+          <nav className="flex items-center gap-2">
+            {links.map((l) => (
+              <button
+                key={l.id}
+                onClick={() => navigate(l.id)}
+                className={classNames(
+                  "px-3 py-2 rounded-xl text-sm",
+                  current === l.id ? "bg-gray-900 text-white" : "hover:bg-gray-100"
+                )}
+              >
+                {l.label}
+              </button>
+            ))}
+          </nav>
 
-        <div className="md:hidden">
+          <a
+            href="/wholesale/order"
+            className="ml-3 inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm border border-gray-200 bg-white hover:bg-gray-50"
+            aria-label="Перейти к оформлению оптового заказа"
+          >
+            Оптовый заказ
+            <span className="inline-flex items-center justify-center min-w-6 h-6 px-2 rounded-full bg-gray-900 text-white text-xs">
+              {cartCount}
+            </span>
+          </a>
+        </div>
+
+        {/* мобильное меню: селект + кнопка заказа со счётчиком */}
+        <div className="md:hidden flex items-center gap-2">
           <Select
             value={current}
             onChange={navigate}
             options={links.map((l) => ({ value: l.id, label: l.label }))}
+            placeholder="Перейти"
           />
+          <a
+            href="/wholesale/order"
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm border border-gray-200 bg-white"
+          >
+            Заказ
+            <span className="inline-flex items-center justify-center min-w-6 h-6 px-2 rounded-full bg-gray-900 text-white text-xs">{cartCount}</span>
+          </a>
         </div>
       </div>
     </div>
@@ -332,7 +380,7 @@ function Footer() {
   return (
     <div className="mt-10 border-t border-gray-100">
       <div className="mx-auto max-w-7xl px-4 py-8 text-sm text-gray-500 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-        <div>© {new Date().getFullYear()} kawa.by … · v{process.env.NEXT_PUBLIC_APP_VERSION}</div>
+        <div>© {new Date().getFullYear()} kawa.by (ООО «МЭР ТРЕЙД»). Все права защищены.</div>
         <div className="flex items-center gap-4">
           <a className="hover:underline" href="#">Политика конфиденциальности</a>
           <a className="hover:underline" href="#">Реквизиты</a>
@@ -390,7 +438,6 @@ function HomePage({ navigate }) {
     </div>
   );
 }
-
 
 function LocationsPage() {
   const [locations, setLocations] = useState([]);
@@ -697,8 +744,6 @@ function WholesalePage() {
       if (!resp.ok) throw new Error(data?.error || `HTTP ${resp.status}`);
 
       setResult({ ok: true, msg: "Заявка принята. Мы свяжемся с вами и вышлем прайс." });
-      // по желанию: очистить форму
-      // setForm({ ...form, comment: "", password: "" });
     } catch (e) {
       setResult({ ok: false, msg: `Ошибка отправки: ${String(e.message || e)}` });
     } finally {
