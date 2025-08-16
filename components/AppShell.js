@@ -332,7 +332,7 @@ function Footer() {
   return (
     <div className="mt-10 border-t border-gray-100">
       <div className="mx-auto max-w-7xl px-4 py-8 text-sm text-gray-500 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-        <div>© {new Date().getFullYear()} kawa.by (ООО «МЭР ТРЕЙД»). Все права защищены.</div>
+        <div>© {new Date().getFullYear()} kawa.by … · v{process.env.NEXT_PUBLIC_APP_VERSION}</div>
         <div className="flex items-center gap-4">
           <a className="hover:underline" href="#">Политика конфиденциальности</a>
           <a className="hover:underline" href="#">Реквизиты</a>
