@@ -1,88 +1,91 @@
-// pages/auth/login.js
-import React, { useEffect, useState } from "react";
+import { useState } from "react";
+import { useRouter } from "next/router";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [err, setErr] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const router = useRouter();
 
-  // куда вернуться после логина
-  const [next, setNext] = useState("/");
-  useEffect(() => {
-    try {
-      const url = new URL(window.location.href);
-      const n = url.searchParams.get("next");
-      setNext(n && n.startsWith("/") ? n : "/wholesale/order");
-    } catch {
-      setNext("/wholesale/order");
-    }
-  }, []);
-
-  async function onSubmit(e) {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    setErr(null);
+    setLoading(true);
+    setError(null);
+
     try {
-      setSubmitting(true);
-      const resp = await fetch("/api/auth/login", {
+      // 1. Запрос логина
+      const loginRes = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
-      const data = await resp.json().catch(() => ({}));
-      if (!resp.ok) throw new Error(data?.error || `HTTP ${resp.status}`);
-      window.location.href = next;
-    } catch (e) {
-      setErr(String(e?.message || e));
+
+      if (!loginRes.ok) {
+        throw new Error("Неверный email или пароль");
+      }
+
+      const { token } = await loginRes.json();
+      localStorage.setItem("token", token);
+
+      // 2. Проверка пользователя
+      const meRes = await fetch("/api/auth/me", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!meRes.ok) {
+        throw new Error("Ошибка авторизации");
+      }
+
+      const user = await meRes.json();
+      console.log("✅ Авторизован:", user);
+
+      // 3. Переход на личный кабинет
+      router.push("/dashboard");
+
+    } catch (err) {
+      setError(err.message);
     } finally {
-      setSubmitting(false);
+      setLoading(false);
     }
-  }
+  };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-white to-gray-50 text-gray-900 grid place-items-center px-4">
-      <div className="w-full max-w-md rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
-        <div className="text-2xl font-bold">Вход для оптовых клиентов</div>
-        <div className="text-sm text-gray-600 mt-1">
-          Введите email и пароль. Если у вас нет доступа — заполните заявку на сайте.
-        </div>
+    <div className="flex items-center justify-center min-h-screen bg-gray-100">
+      <form
+        onSubmit={handleSubmit}
+        className="bg-white shadow-lg rounded-lg p-6 w-full max-w-sm"
+      >
+        <h2 className="text-2xl font-bold mb-4 text-center">Вход</h2>
 
-        {err && (
-          <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-            {err}
-          </div>
-        )}
+        <input
+          type="email"
+          placeholder="Email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          className="w-full mb-3 p-2 border rounded"
+          required
+        />
 
-        <form className="mt-4 grid gap-3" onSubmit={onSubmit}>
-          <input
-            type="email"
-            placeholder="Email"
-            value={email}
-            required
-            onChange={(e) => setEmail(e.target.value)}
-            className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300"
-          />
-          <input
-            type="password"
-            placeholder="Пароль"
-            value={password}
-            required
-            onChange={(e) => setPassword(e.target.value)}
-            className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300"
-          />
-          <button
-            type="submit"
-            disabled={submitting}
-            className={`rounded-xl px-4 py-2 text-sm ${submitting ? "bg-gray-300 text-gray-500" : "bg-gray-900 text-white hover:opacity-90"}`}
-          >
-            {submitting ? "Входим…" : "Войти"}
-          </button>
-        </form>
+        <input
+          type="password"
+          placeholder="Пароль"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          className="w-full mb-3 p-2 border rounded"
+          required
+        />
 
-        <div className="text-xs text-gray-500 mt-4">
-          Нажимая «Войти», вы соглашаетесь с обработкой персональных данных.
-        </div>
-      </div>
+        <button
+          type="submit"
+          disabled={loading}
+          className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700"
+        >
+          {loading ? "Входим..." : "Войти"}
+        </button>
+
+        {error && <p className="text-red-500 mt-3 text-center">{error}</p>}
+      </form>
     </div>
   );
 }
