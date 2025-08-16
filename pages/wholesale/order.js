@@ -1,298 +1,385 @@
-// pages/wholesale/order.js
 import React, { useEffect, useMemo, useState } from "react";
-import Head from "next/head";
-import Link from "next/link";
 import { getJSON, setJSON } from "@/lib/safeStorage";
 
-// Лёгкий ErrorBoundary только для этой страницы
-class PageBoundary extends React.Component {
-  constructor(p){ super(p); this.state = {err:null}; }
-  static getDerivedStateFromError(e){ return {err:e}; }
-  componentDidCatch(){/* no-op */}
-  render(){
-    if (this.state.err) {
-      return (
-        <div style={{maxWidth:720,margin:"32px auto",padding:16,border:"1px solid #FCD34D",borderRadius:12,background:"#FFFBEB"}}>
-          <div style={{fontWeight:600,marginBottom:8}}>На странице произошла ошибка.</div>
-          <div style={{opacity:.8,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>
-            {String(this.state.err?.message || this.state.err)}
-          </div>
-          <div style={{fontSize:12,opacity:.7,marginTop:8}}>Обнови страницу или очисти корзину.</div>
-        </div>
-      );
-    }
-    return this.props.children;
-  }
-}
+/**
+ * Страница оформления оптового заказа
+ * - Подтягивает товары с /api/b2b-products (или /data/b2b-products.json если API вернул ошибку)
+ * - Поиск + фильтр по категориям
+ * - Добавление в корзину с ограничением по остатку
+ * - Корзина с редактированием количества, удалением, очисткой
+ * - Сохранение корзины в localStorage (через safeStorage)
+ * - Отправка заказа на /api/cart-submit (заглушка отвечает 200)
+ */
 
-// Нормализация продуктов из /api/b2b-products
-function normalizeProducts(raw) {
-  const list = Array.isArray(raw?.products) ? raw.products : [];
-  return list.map((p,i)=>({
-    id: p.id ?? String(i+1),
-    title: p.title ?? p.name ?? "Без названия",
-    category: p.category ?? "",
-    brand: p.brand ?? "",
-    pack: p.pack ?? "",
-    tags: Array.isArray(p.tags) ? p.tags : [],
-    price: (p.price ?? null) != null ? Number(p.price) : null,
-    stock: (p.stock ?? null) != null ? Number(p.stock) : null,
-    image: p.image ?? null,
-  }));
-}
+const STORAGE_KEY = "kawa.cart.v1";
 
-function clampQty(q, stock) {
-  const s = Number.isFinite(stock) ? Math.max(0, Math.floor(stock)) : Infinity;
-  const v = Math.max(1, Math.floor(q || 1));
-  return Math.min(v, s);
-}
-
-function useCart() {
-  const [items, setItems] = useState([]);
-  // начальная загрузка из localStorage
-  useEffect(()=> {
-    setItems(getJSON("kawa.cart", []));
-  }, []);
-  // автосохранение
-  useEffect(()=> {
-    setJSON("kawa.cart", items);
-  }, [items]);
-
-  const add = (p, qty=1) => {
-    setItems(prev=>{
-      const ex = prev.find(x=>x.id===p.id);
-      const max = Number.isFinite(p.stock) ? Math.max(0, Math.floor(p.stock)) : Infinity;
-      if (!ex) return [...prev, { id:p.id, title:p.title, price:p.price ?? 0, stock:p.stock ?? null, qty: clampQty(qty, max) }];
-      const newQty = clampQty(ex.qty + qty, max);
-      return prev.map(x=> x.id===p.id ? {...x, qty:newQty} : x);
-    });
-  };
-  const setQty = (id, qty, stock) => {
-    setItems(prev => prev.map(x => x.id===id ? {...x, qty: clampQty(qty, stock)} : x));
-  };
-  const remove = (id) => setItems(prev => prev.filter(x=>x.id!==id));
-  const clear = () => setItems([]);
-
-  const total = items.reduce((s,x)=> s + (Number(x.price||0) * Number(x.qty||0)), 0);
-
-  return { items, add, setQty, remove, clear, total };
+function classNames(...a) {
+  return a.filter(Boolean).join(" ");
 }
 
 export default function WholesaleOrderPage() {
+  // ----- каталог -----
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
   const [products, setProducts] = useState([]);
 
-  // Фильтры/поиск
-  const [q, setQ] = useState("");
-  const [cat, setCat] = useState("");
-
-  const cart = useCart();
-
-  useEffect(()=>{
+  useEffect(() => {
     let alive = true;
-    (async ()=>{
-      setLoading(true); setErr(null);
+    const load = async () => {
+      setLoading(true);
+      setErr(null);
       try {
-        const resp = await fetch("/api/b2b-products", { method: "GET" });
+        const resp = await fetch("/api/b2b-products", { cache: "no-store" });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        // безопасный разбор JSON
-        let data = null;
-        try { data = await resp.json(); } catch { data = null; }
-        const list = normalizeProducts(data || {});
+        const data = await resp.json();
+        const list = Array.isArray(data?.products) ? data.products : [];
         if (alive) setProducts(list);
-      } catch(e) {
-        if (alive) setErr(String(e?.message || e));
+      } catch (e) {
+        // fallback на статичный файл, чтобы не блокировать работу
+        try {
+          const r2 = await fetch("/data/b2b-products.json", { cache: "no-store" });
+          const d2 = await r2.json();
+          if (alive) {
+            setProducts(Array.isArray(d2?.products) ? d2.products : []);
+            setErr("(Показан тестовый каталог из файла — API временно недоступен)");
+          }
+        } catch {
+          if (alive) setErr(String(e?.message || e));
+        }
       } finally {
         if (alive) setLoading(false);
       }
-    })();
-    return ()=>{ alive=false; };
+    };
+    load();
+    return () => { alive = false; };
   }, []);
 
-  const cats = useMemo(()=> Array.from(new Set(products.map(p=>p.category))).filter(Boolean), [products]);
+  // ----- фильтры -----
+  const [q, setQ] = useState("");
+  const [cat, setCat] = useState("");
 
-  const filtered = useMemo(()=>{
+  const categories = useMemo(
+    () => Array.from(new Set(products.map((p) => p.category).filter(Boolean))).sort(),
+    [products]
+  );
+
+  const filtered = useMemo(() => {
     const qq = q.trim().toLowerCase();
-    return products.filter(p =>
-      (!cat || p.category===cat) &&
-      (!qq || (p.title||"").toLowerCase().includes(qq))
-    );
-  }, [products, cat, q]);
-
-  const placeOrder = async () => {
-    // демо: валидируем корзину и режем превышения
-    const fixed = cart.items.map(x=>{
-      const p = products.find(p=>p.id===x.id);
-      const stock = p?.stock ?? x.stock ?? null;
-      return { ...x, qty: clampQty(x.qty, stock) };
+    return products.filter((p) => {
+      const byCat = !cat || p.category === cat;
+      const byQ =
+        !qq ||
+        (p.title || "").toLowerCase().includes(qq) ||
+        (p.brand || "").toLowerCase().includes(qq) ||
+        (p.pack || "").toLowerCase().includes(qq);
+      return byCat && byQ;
     });
+  }, [products, q, cat]);
 
-    // если после clamp какие-то qty уменьшились — сохраним и покажем предупреждение
-    const changed = fixed.some((fx,i)=> fx.qty !== cart.items[i]?.qty);
-    if (changed) {
-      // перезаписываем корзину
-      setJSON("kawa.cart", fixed);
-      alert("Количество некоторых позиций уменьшено до доступного остатка.");
-      // локально обновим
-      // небольшая хитрость: дернём setItems через setJSON, а хук подхватит при следующем маунте; для простоты перезагрузим страницу
-      if (typeof window !== "undefined") window.location.reload();
-      return;
+  // ----- корзина -----
+  const [cart, setCart] = useState(() => getJSON(STORAGE_KEY, []));
+  useEffect(() => { setJSON(STORAGE_KEY, cart); }, [cart]);
+
+  const cartIndex = useMemo(() => {
+    const idx = new Map();
+    cart.forEach((row, i) => idx.set(row.id, i));
+    return idx;
+  }, [cart]);
+
+  const cartTotalQty = useMemo(
+    () => cart.reduce((s, r) => s + (r.qty || 0), 0),
+    [cart]
+  );
+  const cartTotalSum = useMemo(
+    () => cart.reduce((s, r) => s + (Number(r.price || 0) * (r.qty || 0)), 0),
+    [cart]
+  );
+
+  function addToCart(p, addQty = 1) {
+    const stock = Number.isFinite(p.stock) ? Math.max(0, Number(p.stock)) : 0;
+    if (stock <= 0) return;
+
+    setCart((prev) => {
+      const i = cartIndex.get(p.id);
+      if (i == null) {
+        const qty = Math.min(addQty, stock);
+        return [...prev, { id: p.id, title: p.title, pack: p.pack, price: Number(p.price || 0), stock, qty }];
+      } else {
+        const next = [...prev];
+        const row = { ...next[i] };
+        row.qty = Math.min(stock, (row.qty || 0) + addQty);
+        next[i] = row;
+        return next;
+      }
+    });
+  }
+
+  function setQty(id, nextQty) {
+    setCart((prev) => {
+      const i = prev.findIndex((r) => r.id === id);
+      if (i < 0) return prev;
+      const row = { ...prev[i] };
+      const stock = Number.isFinite(row.stock) ? Math.max(0, Number(row.stock)) : 0;
+      const qty = Math.max(0, Math.min(stock, Number(nextQty || 0)));
+      const next = [...prev];
+      if (qty === 0) next.splice(i, 1);
+      else next[i] = { ...row, qty };
+      return next;
+    });
+  }
+
+  function removeFromCart(id) {
+    setCart((prev) => prev.filter((r) => r.id !== id));
+  }
+
+  function clearCart() {
+    setCart([]);
+  }
+
+  // ----- отправка заказа (заглушка) -----
+  const [submitting, setSubmitting] = useState(false);
+  const [submitMsg, setSubmitMsg] = useState(null);
+
+  async function submitOrder() {
+    if (!cart.length) return;
+    setSubmitMsg(null);
+    try {
+      setSubmitting(true);
+      const payload = {
+        items: cart.map((r) => ({ id: r.id, qty: r.qty, price: r.price })),
+        total_qty: cartTotalQty,
+        total_sum: cartTotalSum,
+        meta: { source: "kawa.by", at: new Date().toISOString() },
+      };
+      const resp = await fetch("/api/cart-submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(data?.error || `HTTP ${resp.status}`);
+      setSubmitMsg({ ok: true, text: "Заказ отправлен. Менеджер свяжется с вами." });
+      clearCart();
+    } catch (e) {
+      setSubmitMsg({ ok: false, text: `Не удалось отправить заказ: ${String(e?.message || e)}` });
+    } finally {
+      setSubmitting(false);
     }
+  }
 
-    // демо-отправка (позже подключим API)
-    alert("Заказ оформлен (демо). В проде отправим на бэкенд.");
-    cart.clear();
-  };
-
+  // ----- UI -----
   return (
-    <PageBoundary>
-      <Head><title>Оптовый заказ — kawa.by</title></Head>
-
-      <div className="min-h-screen bg-gradient-to-b from-white to-gray-50 text-gray-900">
-        <header className="sticky top-0 z-10 backdrop-blur bg-white/70 border-b border-gray-100">
-          <div className="mx-auto max-w-7xl px-4 py-3 flex items-center justify-between">
-            <Link href="/" className="font-semibold hover:underline">kawa.by — МЭР ТРЕЙД</Link>
-            <nav className="text-sm flex gap-3">
-              <Link href="/#catalog" className="hover:underline">Каталог</Link>
-              <Link href="/#wholesale" className="hover:underline">Оптовая заявка</Link>
-              <Link href="/wholesale/order" className="font-semibold">Оптовый заказ</Link>
-            </nav>
+    <div className="min-h-screen bg-gradient-to-b from-white to-gray-50 text-gray-900">
+      <div className="mx-auto max-w-7xl px-4 py-6">
+        <div className="flex items-end justify-between flex-wrap gap-3">
+          <h1 className="text-2xl md:text-3xl font-bold">Оформление оптового заказа</h1>
+          <div className="text-sm text-gray-600">
+            В корзине: <b>{cartTotalQty}</b> шт · <b>{cartTotalSum.toFixed(2)}</b>
           </div>
-        </header>
+        </div>
 
-        <main className="mx-auto max-w-7xl px-4 py-6">
-          {/* Фильтры */}
-          <div className="grid md:grid-cols-4 gap-4">
-            <div className="md:col-span-1">
-              <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
-                <div className="font-semibold mb-3">Фильтры</div>
-                <div className="space-y-3">
-                  <div>
-                    <div className="text-xs text-gray-600 mb-1">Категория</div>
-                    <select
-                      value={cat}
-                      onChange={(e)=>setCat(e.target.value)}
-                      className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm bg-white"
-                    >
-                      <option value="">Все</option>
-                      {cats.map(c=> <option key={c} value={c}>{c}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <div className="text-xs text-gray-600 mb-1">Поиск</div>
-                    <input
-                      value={q}
-                      onChange={(e)=>setQ(e.target.value)}
-                      placeholder="Название товара"
-                      className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300"
-                    />
-                  </div>
-                </div>
-              </div>
+        {/* фильтры */}
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
+          <div className="md:col-span-2">
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Поиск по названию, бренду, упаковке…"
+              className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300 bg-white"
+            />
+          </div>
+          <div>
+            <select
+              value={cat}
+              onChange={(e) => setCat(e.target.value)}
+              className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm bg-white"
+            >
+              <option value="">Все категории</option>
+              {categories.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* каталог */}
+        <div className="mt-4">
+          {loading && <div className="rounded-2xl border border-gray-100 bg-white p-4">Загрузка каталога…</div>}
+          {err && !loading && (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-800 text-sm">
+              {err}
             </div>
+          )}
+          {!loading && filtered.length === 0 && (
+            <div className="rounded-2xl border border-gray-100 bg-white p-4">Ничего не найдено, измените фильтры.</div>
+          )}
 
-            {/* Каталог + корзина */}
-            <div className="md:col-span-3 grid gap-4">
-              <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
-                <div className="font-semibold mb-3">Каталог (опт)</div>
+          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3 mt-2">
+            {filtered.map((p) => {
+              const inCart = cart.find((r) => r.id === p.id);
+              const stock = Number.isFinite(p.stock) ? Number(p.stock) : 0;
+              const canAdd = stock > (inCart?.qty || 0);
 
-                {loading && <div className="text-sm">Загрузка каталога…</div>}
-                {err && <div className="text-sm rounded-xl px-3 py-2 bg-amber-50 text-amber-800 border border-amber-200">Ошибка загрузки: {err}</div>}
-
-                {!loading && !err && filtered.length === 0 && (
-                  <div className="text-sm">Ничего не найдено. Измени фильтры.</div>
-                )}
-
-                {!loading && !err && filtered.length > 0 && (
-                  <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {filtered.map(p=>(
-                      <div key={p.id} className="rounded-xl border border-gray-100 p-3">
-                        <div className="text-sm font-medium">{p.title}</div>
-                        <div className="text-xs text-gray-600">
-                          {(p.category || "—")}{p.brand ? ` • ${p.brand}` : ""}{p.pack ? ` • ${p.pack}` : ""}
-                        </div>
-                        <div className="text-xs text-gray-600 mt-1">
-                          {p.price != null ? `Цена: ${p.price}` : ""}{p.stock != null ? ` · Остаток: ${p.stock}` : ""}
-                        </div>
-                        <div className="mt-2 flex gap-2">
-                          <button
-                            className="px-3 py-1 rounded-xl text-sm border border-gray-200 bg-white hover:bg-gray-50"
-                            onClick={()=>cart.add(p, 1)}
-                          >
-                            В корзину
-                          </button>
-                          <button
-                            className="px-3 py-1 rounded-xl text-sm border border-gray-900 bg-gray-900 text-white hover:opacity-90"
-                            onClick={()=>cart.add(p, Math.min(5, Number.isFinite(p.stock)?Math.max(1,p.stock):5))}
-                          >
-                            Быстрый заказ
-                          </button>
-                        </div>
-                      </div>
-                    ))}
+              return (
+                <div key={p.id} className="rounded-2xl border border-gray-100 bg-white p-4 flex gap-3">
+                  <div className="h-16 w-16 rounded-xl bg-gray-100 overflow-hidden grid place-items-center shrink-0">
+                    {p.image ? (
+                      <img alt={p.title} src={p.image} className="object-cover w-full h-full" />
+                    ) : (
+                      <div className="text-xs text-gray-500">нет фото</div>
+                    )}
                   </div>
-                )}
-              </div>
-
-              <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
-                <div className="font-semibold mb-3">Корзина</div>
-                {cart.items.length === 0 ? (
-                  <div className="text-sm text-gray-600">Пусто. Добавь позиции из каталога.</div>
-                ) : (
-                  <div className="grid gap-3">
-                    {cart.items.map(x=>{
-                      const p = products.find(p=>p.id===x.id);
-                      const stock = p?.stock ?? x.stock ?? null;
-                      const max = Number.isFinite(stock) ? Math.max(0, Math.floor(stock)) : "";
-                      return (
-                        <div key={x.id} className="flex items-center gap-3">
-                          <div className="flex-1">
-                            <div className="text-sm font-medium">{x.title}</div>
-                            <div className="text-xs text-gray-600">
-                              {p?.price != null ? `Цена: ${p.price}` : ""} {Number.isFinite(stock) ? `· Остаток: ${stock}` : ""}
-                            </div>
-                          </div>
-                          <input
-                            type="number"
-                            min={1}
-                            max={max}
-                            value={x.qty}
-                            onChange={(e)=> cart.setQty(x.id, Number(e.target.value||1), stock)}
-                            className="w-20 rounded-lg border border-gray-200 px-2 py-1 text-sm"
-                          />
-                          <button
-                            onClick={()=>cart.remove(x.id)}
-                            className="px-2 py-1 rounded-lg border border-gray-200 text-sm hover:bg-gray-50"
-                          >
-                            Удалить
-                          </button>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold truncate">{p.title}</div>
+                    <div className="text-xs text-gray-600">
+                      {(p.category || "—")}{p.brand ? ` • ${p.brand}` : ""}{p.pack ? ` • ${p.pack}` : ""}
+                    </div>
+                    <div className="mt-1 text-sm">
+                      {p.price != null && <span className="font-medium">{Number(p.price).toFixed(2)}</span>}{" "}
+                      {Number.isFinite(stock) && <span className="text-gray-600">· Остаток: {stock}</span>}
+                    </div>
+                    <div className="mt-2 flex items-center gap-2">
+                      <button
+                        className={classNames(
+                          "rounded-xl px-3 py-1 text-sm border transition",
+                          canAdd
+                            ? "bg-gray-900 text-white border-gray-900 hover:opacity-90"
+                            : "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed"
+                        )}
+                        disabled={!canAdd}
+                        onClick={() => addToCart(p, 1)}
+                      >
+                        В корзину
+                      </button>
+                      {inCart && (
+                        <div className="text-xs text-gray-600">
+                          В корзине: <b>{inCart.qty}</b>
                         </div>
-                      );
-                    })}
-                    <div className="text-sm font-semibold">Итого: {cart.total}</div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={placeOrder}
-                        className="px-4 py-2 rounded-xl bg-gray-900 text-white text-sm hover:opacity-90"
-                      >
-                        Оформить заказ
-                      </button>
-                      <button
-                        onClick={cart.clear}
-                        className="px-4 py-2 rounded-xl border border-gray-200 text-sm hover:bg-gray-50"
-                      >
-                        Очистить
-                      </button>
+                      )}
                     </div>
                   </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* корзина */}
+        <div className="mt-8">
+          <div className="rounded-2xl border border-gray-100 bg-white p-4">
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div className="font-semibold">Корзина</div>
+              <div className="text-sm text-gray-600">
+                {cart.length
+                  ? <>Позиции: <b>{cart.length}</b> · Всего: <b>{cartTotalQty}</b> · Сумма: <b>{cartTotalSum.toFixed(2)}</b></>
+                  : "Корзина пуста"}
+              </div>
+            </div>
+
+            {cart.length > 0 && (
+              <div className="mt-3 overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead className="text-left text-gray-500">
+                    <tr>
+                      <th className="py-2 pr-3">Товар</th>
+                      <th className="py-2 pr-3">Цена</th>
+                      <th className="py-2 pr-3">Остаток</th>
+                      <th className="py-2 pr-3">Кол-во</th>
+                      <th className="py-2 pr-3">Сумма</th>
+                      <th className="py-2"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cart.map((r) => {
+                      const max = Number.isFinite(r.stock) ? Math.max(0, Number(r.stock)) : 0;
+                      return (
+                        <tr key={r.id} className="border-t border-gray-100">
+                          <td className="py-2 pr-3">
+                            <div className="font-medium">{r.title}</div>
+                            <div className="text-xs text-gray-500">{r.pack || ""}</div>
+                          </td>
+                          <td className="py-2 pr-3 whitespace-nowrap">{Number(r.price || 0).toFixed(2)}</td>
+                          <td className="py-2 pr-3 whitespace-nowrap">{max}</td>
+                          <td className="py-2 pr-3">
+                            <div className="flex items-center gap-2">
+                              <button
+                                className="rounded-lg px-2 py-1 border border-gray-200"
+                                onClick={() => setQty(r.id, (r.qty || 0) - 1)}
+                                aria-label="Убавить"
+                              >
+                                −
+                              </button>
+                              <input
+                                className="w-16 rounded-lg border border-gray-200 px-2 py-1 text-sm"
+                                type="number"
+                                min={0}
+                                max={max}
+                                value={r.qty}
+                                onChange={(e) => setQty(r.id, e.target.value)}
+                              />
+                              <button
+                                className="rounded-lg px-2 py-1 border border-gray-200"
+                                onClick={() => setQty(r.id, Math.min(max, (r.qty || 0) + 1))}
+                                disabled={(r.qty || 0) >= max}
+                                aria-label="Прибавить"
+                              >
+                                +
+                              </button>
+                            </div>
+                          </td>
+                          <td className="py-2 pr-3 whitespace-nowrap">
+                            {(Number(r.price || 0) * (r.qty || 0)).toFixed(2)}
+                          </td>
+                          <td className="py-2">
+                            <button
+                              className="rounded-lg px-3 py-1 border border-gray-200 hover:bg-gray-50"
+                              onClick={() => removeFromCart(r.id)}
+                            >
+                              Удалить
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+
+                <div className="mt-4 flex items-center justify-between flex-wrap gap-3">
+                  <button
+                    className="rounded-xl px-4 py-2 text-sm border border-gray-200 hover:bg-gray-50"
+                    onClick={clearCart}
+                  >
+                    Очистить корзину
+                  </button>
+                  <button
+                    className={classNames(
+                      "rounded-xl px-4 py-2 text-sm transition",
+                      cart.length && !submitting ? "bg-gray-900 text-white hover:opacity-90" : "bg-gray-200 text-gray-500 cursor-not-allowed"
+                    )}
+                    disabled={!cart.length || submitting}
+                    onClick={submitOrder}
+                  >
+                    {submitting ? "Отправка…" : "Отправить заказ"}
+                  </button>
+                </div>
+
+                {submitMsg && (
+                  <div
+                    className={classNames(
+                      "mt-3 rounded-xl px-3 py-2 text-sm",
+                      submitMsg.ok
+                        ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
+                        : "bg-amber-50 text-amber-800 border border-amber-200"
+                    )}
+                  >
+                    {submitMsg.text}
+                  </div>
                 )}
               </div>
-
-            </div>
+            )}
           </div>
-        </main>
+        </div>
       </div>
-    </PageBoundary>
+    </div>
   );
 }
