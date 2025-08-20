@@ -123,17 +123,30 @@ export default function WholesaleOrderPage() {
     if (stock <= 0) return;
 
     setCart((prev) => {
-      const i = cartIndex.get(p.id);
-      if (i == null) {
-        const qty = Math.min(addQty, stock);
-        return [...prev, { id: p.id, title: p.title, pack: p.pack, price: Number(p.price || 0), stock, qty }];
-      } else {
-        const next = [...prev];
-        const row = { ...next[i] };
-        row.qty = Math.min(stock, (row.qty || 0) + addQty);
-        next[i] = row;
-        return next;
-      }
+    const id = p?.id;
+if (!id) return prev; // страховка, если товара нет
+const i = cartIndex.get(id);
+if (i == null) {
+  const qty = Math.min(addQty, stock);
+  return [
+    ...prev,
+    {
+      id,
+      title: String(p?.title || ""),
+      pack: p?.pack,
+      price: Number(p?.price || 0),
+      stock,
+      qty,
+    },
+  ];
+} else {
+  const next = [...prev];
+  const row = { ...next[i] };
+  row.qty = Math.min(stock, (row.qty || 0) + addQty);
+  next[i] = row;
+  return next;
+}
+
     });
   }
 
@@ -192,7 +205,7 @@ export default function WholesaleOrderPage() {
         <div className="flex items-end justify-between flex-wrap gap-3">
           <h1 className="text-2xl md:text-3xl font-bold">Оформление оптового заказа</h1>
           <div className="text-sm text-gray-600">
-            Вы вошли как <b>{user.email}</b>
+           Вы вошли как <b>{user?.email || "—"}</b>
             <form className="inline ml-3" onSubmit={async (e)=>{e.preventDefault(); await fetch("/api/auth/logout",{method:"POST"}); window.location.reload();}}>
               <button className="text-gray-500 underline">Выйти</button>
             </form>
@@ -237,12 +250,15 @@ export default function WholesaleOrderPage() {
 
           <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3 mt-2">
             {filtered.map((p) => {
-              const inCart = cart.find((r) => r.id === p.id);
-              const stock = Number.isFinite(p.stock) ? Number(p.stock) : 0;
-              const canAdd = stock > (inCart?.qty || 0);
+              {filtered.map((p) => {
+  const title = String(p?.title || "");
+  const inCart = cart.find((r) => r.id === p?.id);
+  const stock = Number.isFinite(p?.stock) ? Number(p.stock) : 0;
+  const canAdd = stock > (inCart?.qty || 0);
 
-              return (
-                <div key={p.id} className="rounded-2xl border border-gray-100 bg-white p-4 flex gap-3">
+  return (
+    <div key={p?.id || title} className="rounded-2xl ...
+
                   <div className="h-16 w-16 rounded-xl bg-gray-100 overflow-hidden grid place-items-center shrink-0">
                     {p.image ? (
                       <img alt={p.title} src={p.image} className="object-cover w-full h-full" />
@@ -251,7 +267,7 @@ export default function WholesaleOrderPage() {
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="font-semibold truncate">{p.title}</div>
+                    <div className="font-semibold truncate">{title}</div>
                     <div className="text-xs text-gray-600">
                       {(p.category || "—")}{p.brand ? ` • ${p.brand}` : ""}{p.pack ? ` • ${p.pack}` : ""}
                     </div>
@@ -312,52 +328,54 @@ export default function WholesaleOrderPage() {
                   </thead>
                   <tbody>
                     {cart.map((r) => {
-                      const max = Number.isFinite(r.stock) ? Math.max(0, Number(r.stock)) : 0;
-                      return (
-                        <tr key={r.id} className="border-top border-gray-100">
-                          <td className="py-2 pr-3">
-                            <div className="font-medium">{r.title}</div>
-                            <div className="text-xs text-gray-500">{r.pack || ""}</div>
-                          </td>
-                          <td className="py-2 pr-3 whitespace-nowrap">{Number(r.price || 0).toFixed(2)}</td>
-                          <td className="py-2 pr-3 whitespace-nowrap">{max}</td>
-                          <td className="py-2 pr-3">
-                            <div className="flex items-center gap-2">
-                              <button
-                                className="rounded-lg px-2 py-1 border border-gray-200"
-                                onClick={() => setQty(r.id, (r.qty || 0) - 1)}
-                                aria-label="Убавить"
-                              >−</button>
-                              <input
-                                className="w-16 rounded-lg border border-gray-200 px-2 py-1 text-sm"
-                                type="number"
-                                min={0}
-                                max={max}
-                                value={r.qty}
-                                onChange={(e) => setQty(r.id, e.target.value)}
-                              />
-                              <button
-                                className="rounded-lg px-2 py-1 border border-gray-200"
-                                onClick={() => setQty(r.id, Math.min(max, (r.qty || 0) + 1))}
-                                disabled={(r.qty || 0) >= max}
-                                aria-label="Прибавить"
-                              >+</button>
-                            </div>
-                          </td>
-                          <td className="py-2 pr-3 whitespace-nowrap">
-                            {(Number(r.price || 0) * (r.qty || 0)).toFixed(2)}
-                          </td>
-                          <td className="py-2">
-                            <button
-                              className="rounded-lg px-3 py-1 border border-gray-200 hover:bg-gray-50"
-                              onClick={() => removeFromCart(r.id)}
-                            >
-                              Удалить
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
+  const max = Number.isFinite(r?.stock) ? Math.max(0, Number(r.stock)) : 0;
+  const price = Number(r?.price || 0);
+  const qty = Number(r?.qty || 0);
+  return (
+    <tr key={r?.id || Math.random()} className="border-top border-gray-100">
+      <td className="py-2 pr-3">
+        <div className="font-medium">{r?.title || "—"}</div>
+        <div className="text-xs text-gray-500">{r?.pack || ""}</div>
+      </td>
+      <td className="py-2 pr-3 whitespace-nowrap">{price.toFixed(2)}</td>
+      <td className="py-2 pr-3 whitespace-nowrap">{max}</td>
+      <td className="py-2 pr-3">
+        <div className="flex items-center gap-2">
+          <button
+            className="rounded-lg px-2 py-1 border border-gray-200"
+            onClick={() => setQty(r?.id, (qty || 0) - 1)}
+            aria-label="Убавить"
+          >−</button>
+          <input
+            className="w-16 rounded-lg border border-gray-200 px-2 py-1 text-sm"
+            type="number"
+            min={0}
+            max={max}
+            value={qty}
+            onChange={(e) => setQty(r?.id, e.target.value)}
+          />
+          <button
+            className="rounded-lg px-2 py-1 border border-gray-200"
+            onClick={() => setQty(r?.id, Math.min(max, (qty || 0) + 1))}
+            disabled={(qty || 0) >= max}
+            aria-label="Прибавить"
+          >+</button>
+        </div>
+      </td>
+      <td className="py-2 pr-3 whitespace-nowrap">{(price * qty).toFixed(2)}</td>
+      <td className="py-2">
+        <button
+          className="rounded-lg px-3 py-1 border border-gray-200 hover:bg-gray-50"
+          onClick={() => removeFromCart(r?.id)}
+        >
+          Удалить
+        </button>
+      </td>
+    </tr>
+  );
+})}
+
+
                   </tbody>
                 </table>
 
