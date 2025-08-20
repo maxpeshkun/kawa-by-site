@@ -1,16 +1,22 @@
 // pages/api/auth/me.js
-import { verifyJWT } from "@/lib/jwt";
-
-const COOKIE_NAME = "kawa_session";
+import { parseCookies } from "@/lib/cookies";
+import { getSession } from "@/lib/sessions";
 
 export default async function handler(req, res) {
-  const cookie = req.headers.cookie || "";
-  const token = (cookie.split(";").map(s => s.trim()).find(s => s.startsWith(`${COOKIE_NAME}=`)) || "")
-    .split("=")[1];
-
-  const payload = verifyJWT(token, process.env.JWT_SECRET);
-  if (!payload) {
-    return res.status(401).json({ error: "Unauthorized" });
+  // мягкая проверка — всегда 200
+  try {
+    const cookies = parseCookies(req);
+    const token = cookies.auth_token;
+    const sess = getSession(token);
+    if (!sess) {
+      return res.status(200).json({ authenticated: false });
+    }
+    return res.status(200).json({
+      authenticated: true,
+      email: sess.email,
+      createdAt: sess.createdAt,
+    });
+  } catch (e) {
+    return res.status(200).json({ authenticated: false });
   }
-  return res.status(200).json({ ok: true, user: { email: payload.email } });
 }
