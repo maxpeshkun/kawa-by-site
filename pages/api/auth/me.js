@@ -2,9 +2,17 @@
 import { getSession } from "../../../lib/sessions";
 
 export default function handler(req, res) {
-  const session = getSession(req);
-  if (!session?.user) {
-    return res.status(200).json({ auth: false, user: null });
+  try {
+    const sess = getSession(req);
+    if (sess?.user) {
+      return res.status(200).json({
+        authenticated: true,
+        user: sess.user, // { id, email }
+        email: sess.user.email,
+      });
+    }
+    return res.status(200).json({ authenticated: false, user: null });
+  } catch (e) {
+    return res.status(200).json({ authenticated: false, user: null });
   }
-  return res.status(200).json({ auth: true, user: session.user });
 }
