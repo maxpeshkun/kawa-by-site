@@ -6,8 +6,11 @@ const STORAGE_KEY = "kawa.cart.v1";
 function classNames(...a) { return a.filter(Boolean).join(" "); }
 
 export default function WholesaleOrderPage() {
-  // ---- auth guard ----
-  const [user, setUser] = useState(undefined); // undefined = загрузка, null = не авторизован, {email} = ок
+  // -------------------------------------------------
+  // HOOKS — ВСЕ ХУКИ ВЫЗЫВАЕМ БЕЗ УСЛОВИЙ (fix React#310)
+  // -------------------------------------------------
+  // auth
+  const [user, setUser] = useState(undefined); // undefined = загрузка, null = не авторизован, {email}
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -15,7 +18,7 @@ export default function WholesaleOrderPage() {
         const r = await fetch("/api/auth/me", { cache: "no-store" });
         if (!alive) return;
         if (r.ok) {
-          const d = await r.json().catch(()=> ({}));
+          const d = await r.json().catch(() => ({}));
           setUser(d?.user || null);
         } else {
           setUser(null);
@@ -27,33 +30,10 @@ export default function WholesaleOrderPage() {
     return () => { alive = false; };
   }, []);
 
-  // показать спиннер/карту входа
-  if (user === undefined) {
-    return <div className="min-h-screen grid place-items-center text-gray-600">Загрузка…</div>;
-  }
-  if (user === null) {
-    const next = encodeURIComponent("/wholesale/order");
-    return (
-      <div className="min-h-screen grid place-items-center bg-gradient-to-b from-white to-gray-50 px-4">
-        <div className="w-full max-w-md rounded-2xl border border-gray-100 bg-white p-6 shadow-sm text-center">
-          <div className="text-xl font-semibold">Нужна авторизация</div>
-          <div className="text-sm text-gray-600 mt-1">Чтобы оформить оптовый заказ, войдите в аккаунт.</div>
-          <a
-            href={`/wholesale/login?next=${next}`}
-            className="mt-4 inline-flex rounded-xl px-4 py-2 text-sm bg-gray-900 text-white hover:opacity-90"
-          >
-            Войти
-          </a>
-        </div>
-      </div>
-    );
-  }
-
-  // ----- каталог -----
+  // каталог
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
   const [products, setProducts] = useState([]);
-
   useEffect(() => {
     let alive = true;
     const load = async () => {
@@ -83,94 +63,72 @@ export default function WholesaleOrderPage() {
     return () => { alive = false; };
   }, []);
 
-  // ----- фильтры -----
+  // фильтры
   const [q, setQ] = useState("");
   const [cat, setCat] = useState("");
-
   const categories = useMemo(
-    () => Array.from(new Set(products.map((p) => p.category).filter(Boolean))).sort(),
+    () => Array.from(new Set(products.map((p) => p?.category).filter(Boolean))).sort(),
     [products]
   );
-
   const filtered = useMemo(() => {
     const qq = q.trim().toLowerCase();
     return products.filter((p) => {
-      const byCat = !cat || p.category === cat;
-      const byQ =
-        !qq ||
-        (p.title || "").toLowerCase().includes(qq) ||
-        (p.brand || "").toLowerCase().includes(qq) ||
-        (p.pack || "").toLowerCase().includes(qq);
+      const byCat = !cat || p?.category === cat;
+      const byQ = !qq ||
+        (p?.title || "").toLowerCase().includes(qq) ||
+        (p?.brand || "").toLowerCase().includes(qq) ||
+        (p?.pack || "").toLowerCase().includes(qq);
       return byCat && byQ;
     });
   }, [products, q, cat]);
 
-  // ----- корзина -----
+  // корзина
   const [cart, setCart] = useState(() => getJSON(STORAGE_KEY, []));
   useEffect(() => { setJSON(STORAGE_KEY, cart); }, [cart]);
-
   const cartIndex = useMemo(() => {
     const idx = new Map();
-    cart.forEach((row, i) => idx.set(row.id, i));
+    cart.forEach((row, i) => idx.set(row?.id, i));
     return idx;
   }, [cart]);
-
-  const cartTotalQty = useMemo(() => cart.reduce((s, r) => s + (r.qty || 0), 0), [cart]);
-  const cartTotalSum = useMemo(() => cart.reduce((s, r) => s + (Number(r.price || 0) * (r.qty || 0)), 0), [cart]);
+  const cartTotalQty = useMemo(() => cart.reduce((s, r) => s + (Number(r?.qty) || 0), 0), [cart]);
+  const cartTotalSum = useMemo(() => cart.reduce((s, r) => s + ((Number(r?.price) || 0) * (Number(r?.qty) || 0)), 0), [cart]);
 
   function addToCart(p, addQty = 1) {
-    const stock = Number.isFinite(p.stock) ? Math.max(0, Number(p.stock)) : 0;
+    const stock = Number.isFinite(p?.stock) ? Math.max(0, Number(p.stock)) : 0;
     if (stock <= 0) return;
-
     setCart((prev) => {
-    const id = p?.id;
-if (!id) return prev; // страховка, если товара нет
-const i = cartIndex.get(id);
-if (i == null) {
-  const qty = Math.min(addQty, stock);
-  return [
-    ...prev,
-    {
-      id,
-      title: String(p?.title || ""),
-      pack: p?.pack,
-      price: Number(p?.price || 0),
-      stock,
-      qty,
-    },
-  ];
-} else {
-  const next = [...prev];
-  const row = { ...next[i] };
-  row.qty = Math.min(stock, (row.qty || 0) + addQty);
-  next[i] = row;
-  return next;
-}
-
+      const id = p?.id; if (!id) return prev;
+      const i = cartIndex.get(id);
+      if (i == null) {
+        const qty = Math.min(addQty, stock);
+        return [...prev, { id, title: String(p?.title || ""), pack: p?.pack, price: Number(p?.price || 0), stock, qty }];
+      } else {
+        const next = [...prev];
+        const row = { ...next[i] };
+        row.qty = Math.min(stock, (Number(row.qty) || 0) + addQty);
+        next[i] = row;
+        return next;
+      }
     });
   }
-
   function setQty(id, nextQty) {
     setCart((prev) => {
-      const i = prev.findIndex((r) => r.id === id);
+      const i = prev.findIndex((r) => r?.id === id);
       if (i < 0) return prev;
       const row = { ...prev[i] };
-      const stock = Number.isFinite(row.stock) ? Math.max(0, Number(row.stock)) : 0;
+      const stock = Number.isFinite(row?.stock) ? Math.max(0, Number(row.stock)) : 0;
       const qty = Math.max(0, Math.min(stock, Number(nextQty || 0)));
       const next = [...prev];
-      if (qty === 0) next.splice(i, 1);
-      else next[i] = { ...row, qty };
+      if (qty === 0) next.splice(i, 1); else next[i] = { ...row, qty };
       return next;
     });
   }
-
-  function removeFromCart(id) { setCart((prev) => prev.filter((r) => r.id !== id)); }
+  function removeFromCart(id) { setCart((prev) => prev.filter((r) => r?.id !== id)); }
   function clearCart() { setCart([]); }
 
-  // ----- отправка заказа (заглушка) -----
+  // отправка заказа
   const [submitting, setSubmitting] = useState(false);
   const [submitMsg, setSubmitMsg] = useState(null);
-
   async function submitOrder() {
     if (!cart.length) return;
     setSubmitMsg(null);
@@ -178,16 +136,12 @@ if (i == null) {
       setSubmitting(true);
       const payload = {
         user: { email: user?.email || "" },
-        items: cart.map((r) => ({ id: r.id, qty: r.qty, price: r.price })),
+        items: cart.map((r) => ({ id: r?.id, qty: Number(r?.qty) || 0, price: Number(r?.price) || 0 })),
         total_qty: cartTotalQty,
         total_sum: cartTotalSum,
         meta: { source: "kawa.by", at: new Date().toISOString() },
       };
-      const resp = await fetch("/api/cart-submit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      const resp = await fetch("/api/cart-submit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(data?.error || `HTTP ${resp.status}`);
       setSubmitMsg({ ok: true, text: "Заказ отправлен. Менеджер свяжется с вами." });
@@ -199,218 +153,170 @@ if (i == null) {
     }
   }
 
+  // -------------------------------------------------
+  // RENDER
+  // -------------------------------------------------
   return (
     <div className="min-h-screen bg-gradient-to-b from-white to-gray-50 text-gray-900">
       <div className="mx-auto max-w-7xl px-4 py-6">
-        <div className="flex items-end justify-between flex-wrap gap-3">
-          <h1 className="text-2xl md:text-3xl font-bold">Оформление оптового заказа</h1>
-          <div className="text-sm text-gray-600">
-           Вы вошли как <b>{user?.email || "—"}</b>
-            <form className="inline ml-3" onSubmit={async (e)=>{e.preventDefault(); await fetch("/api/auth/logout",{method:"POST"}); window.location.reload();}}>
-              <button className="text-gray-500 underline">Выйти</button>
-            </form>
-          </div>
-        </div>
-
-        {/* Фильтры */}
-        <div className="mt-4 grid gap-3 md:grid-cols-3">
-          <div className="md:col-span-2">
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Поиск по названию, бренду, упаковке…"
-              className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300 bg-white"
-            />
-          </div>
-          <div>
-            <select
-              value={cat}
-              onChange={(e) => setCat(e.target.value)}
-              className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm bg-white"
-            >
-              <option value="">Все категории</option>
-              {Array.from(new Set(products.map(p=>p.category).filter(Boolean))).sort().map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        {/* Каталог */}
-        <div className="mt-4">
-          {loading && <div className="rounded-2xl border border-gray-100 bg-white p-4">Загрузка каталога…</div>}
-          {err && !loading && (
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-800 text-sm">
-              {err}
+        {/* Гейт авторизации / лоадер */}
+        {user === undefined && (
+          <div className="min-h-[40vh] grid place-items-center text-gray-600">Загрузка…</div>
+        )}
+        {user === null && (
+          <div className="min-h-[40vh] grid place-items-center">
+            <div className="w-full max-w-md rounded-2xl border border-gray-100 bg-white p-6 shadow-sm text-center">
+              <div className="text-xl font-semibold">Нужна авторизация</div>
+              <div className="text-sm text-gray-600 mt-1">Чтобы оформить оптовый заказ, войдите в аккаунт.</div>
+              <a href={`/wholesale/login?next=${encodeURIComponent("/wholesale/order")}`} className="mt-4 inline-flex rounded-xl px-4 py-2 text-sm bg-gray-900 text-white hover:opacity-90">Войти</a>
             </div>
-          )}
-          {!loading && filtered.length === 0 && (
-            <div className="rounded-2xl border border-gray-100 bg-white p-4">Ничего не найдено, измените фильтры.</div>
-          )}
-
-          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3 mt-2">
-            {filtered.map((p) => {
-              {filtered.map((p) => {
-  const title = String(p?.title || "");
-  const inCart = cart.find((r) => r.id === p?.id);
-  const stock = Number.isFinite(p?.stock) ? Number(p.stock) : 0;
-  const canAdd = stock > (inCart?.qty || 0);
-
-  return (
-    <div key={p?.id || title} className="rounded-2xl ...
-
-                  <div className="h-16 w-16 rounded-xl bg-gray-100 overflow-hidden grid place-items-center shrink-0">
-                    {p.image ? (
-                      <img alt={p.title} src={p.image} className="object-cover w-full h-full" />
-                    ) : (
-                      <div className="text-xs text-gray-500">нет фото</div>
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-semibold truncate">{title}</div>
-                    <div className="text-xs text-gray-600">
-                      {(p.category || "—")}{p.brand ? ` • ${p.brand}` : ""}{p.pack ? ` • ${p.pack}` : ""}
-                    </div>
-                    <div className="mt-1 text-sm">
-                      {p.price != null && <span className="font-medium">{Number(p.price).toFixed(2)}</span>} {" "}
-                      {Number.isFinite(stock) && <span className="text-gray-600">· Остаток: {stock}</span>}
-                    </div>
-                    <div className="mt-2 flex items-center gap-2">
-                      <button
-                        className={classNames(
-                          "rounded-xl px-3 py-1 text-sm border transition",
-                          canAdd
-                            ? "bg-gray-900 text-white border-gray-900 hover:opacity-90"
-                            : "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed"
-                        )}
-                        disabled={!canAdd}
-                        onClick={() => addToCart(p, 1)}
-                      >
-                        В корзину
-                      </button>
-                      {inCart && (
-                        <div className="text-xs text-gray-600">
-                          В корзине: <b>{inCart.qty}</b>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
           </div>
-        </div>
+        )}
 
-        {/* Корзина */}
-        <div className="mt-8">
-          <div className="rounded-2xl border border-gray-100 bg-white p-4">
-            <div className="flex items-center justify-between flex-wrap gap-3">
-              <div className="font-semibold">Корзина</div>
+        {user && (
+          <>
+            <div className="flex items-end justify-between flex-wrap gap-3">
+              <h1 className="text-2xl md:text-3xl font-bold">Оформление оптового заказа</h1>
               <div className="text-sm text-gray-600">
-                {cart.length
-                  ? <>Позиции: <b>{cart.length}</b> · Всего: <b>{cartTotalQty}</b> · Сумма: <b>{cartTotalSum.toFixed(2)}</b></>
-                  : "Корзина пуста"}
+                Вы вошли как <b>{user?.email || "—"}</b>
+                <form className="inline ml-3" onSubmit={async (e)=>{e.preventDefault(); await fetch("/api/auth/logout",{method:"POST"}); window.location.reload();}}>
+                  <button className="text-gray-500 underline">Выйти</button>
+                </form>
               </div>
             </div>
 
-            {cart.length > 0 && (
-              <div className="mt-3 overflow-x-auto">
-                <table className="min-w-full text-sm">
-                  <thead className="text-left text-gray-500">
-                    <tr>
-                      <th className="py-2 pr-3">Товар</th>
-                      <th className="py-2 pr-3">Цена</th>
-                      <th className="py-2 pr-3">Остаток</th>
-                      <th className="py-2 pr-3">Кол-во</th>
-                      <th className="py-2 pr-3">Сумма</th>
-                      <th className="py-2"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {cart.map((r) => {
-  const max = Number.isFinite(r?.stock) ? Math.max(0, Number(r.stock)) : 0;
-  const price = Number(r?.price || 0);
-  const qty = Number(r?.qty || 0);
-  return (
-    <tr key={r?.id || Math.random()} className="border-top border-gray-100">
-      <td className="py-2 pr-3">
-        <div className="font-medium">{r?.title || "—"}</div>
-        <div className="text-xs text-gray-500">{r?.pack || ""}</div>
-      </td>
-      <td className="py-2 pr-3 whitespace-nowrap">{price.toFixed(2)}</td>
-      <td className="py-2 pr-3 whitespace-nowrap">{max}</td>
-      <td className="py-2 pr-3">
-        <div className="flex items-center gap-2">
-          <button
-            className="rounded-lg px-2 py-1 border border-gray-200"
-            onClick={() => setQty(r?.id, (qty || 0) - 1)}
-            aria-label="Убавить"
-          >−</button>
-          <input
-            className="w-16 rounded-lg border border-gray-200 px-2 py-1 text-sm"
-            type="number"
-            min={0}
-            max={max}
-            value={qty}
-            onChange={(e) => setQty(r?.id, e.target.value)}
-          />
-          <button
-            className="rounded-lg px-2 py-1 border border-gray-200"
-            onClick={() => setQty(r?.id, Math.min(max, (qty || 0) + 1))}
-            disabled={(qty || 0) >= max}
-            aria-label="Прибавить"
-          >+</button>
-        </div>
-      </td>
-      <td className="py-2 pr-3 whitespace-nowrap">{(price * qty).toFixed(2)}</td>
-      <td className="py-2">
-        <button
-          className="rounded-lg px-3 py-1 border border-gray-200 hover:bg-gray-50"
-          onClick={() => removeFromCart(r?.id)}
-        >
-          Удалить
-        </button>
-      </td>
-    </tr>
-  );
-})}
+            {/* Фильтры */}
+            <div className="mt-4 grid gap-3 md:grid-cols-3">
+              <div className="md:col-span-2">
+                <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Поиск по названию, бренду, упаковке…" className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300 bg-white" />
+              </div>
+              <div>
+                <select value={cat} onChange={(e) => setCat(e.target.value)} className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm bg-white">
+                  <option value="">Все категории</option>
+                  {categories.map((c) => (<option key={c} value={c}>{c}</option>))}
+                </select>
+              </div>
+            </div>
 
+            {/* Каталог */}
+            <div className="mt-4">
+              {loading && <div className="rounded-2xl border border-gray-100 bg-white p-4">Загрузка каталога…</div>}
+              {err && !loading && (<div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-800 text-sm">{err}</div>)}
+              {!loading && filtered.length === 0 && (<div className="rounded-2xl border border-gray-100 bg-white p-4">Ничего не найдено, измените фильтры.</div>)}
 
-                  </tbody>
-                </table>
+              <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3 mt-2">
+                {filtered.map((p) => {
+                  const title = String(p?.title || "");
+                  const inCart = cart.find((r) => r?.id === p?.id);
+                  const stock = Number.isFinite(p?.stock) ? Number(p.stock) : 0;
+                  const canAdd = stock > (inCart?.qty || 0);
+                  return (
+                    <div key={p?.id || title} className="rounded-2xl border border-gray-100 bg-white p-4 flex gap-3">
+                      <div className="h-16 w-16 rounded-xl bg-gray-100 overflow-hidden grid place-items-center shrink-0">
+                        {p?.image ? (
+                          <img alt={title} src={p.image} className="object-cover w-full h-full" />
+                        ) : (
+                          <div className="text-xs text-gray-500">нет фото</div>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-semibold truncate">{title}</div>
+                        <div className="text-xs text-gray-600">{(p?.category || "—")}{p?.brand ? ` • ${p.brand}` : ""}{p?.pack ? ` • ${p.pack}` : ""}</div>
+                        <div className="mt-1 text-sm">
+                          {p?.price != null && <span className="font-medium">{Number(p.price).toFixed(2)}</span>} {" "}
+                          {Number.isFinite(stock) && <span className="text-gray-600">· Остаток: {stock}</span>}
+                        </div>
+                        <div className="mt-2 flex items-center gap-2">
+                          <button
+                            className={classNames(
+                              "rounded-xl px-3 py-1 text-sm border transition",
+                              canAdd ? "bg-gray-900 text-white border-gray-900 hover:opacity-90" : "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed"
+                            )}
+                            disabled={!canAdd}
+                            onClick={() => addToCart(p, 1)}
+                          >
+                            В корзину
+                          </button>
+                          {inCart && (<div className="text-xs text-gray-600">В корзине: <b>{inCart.qty}</b></div>)}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
 
-                <div className="mt-4 flex items-center justify-between flex-wrap gap-3">
-                  <button className="rounded-xl px-4 py-2 text-sm border border-gray-200 hover:bg-gray-50" onClick={clearCart}>
-                    Очистить корзину
-                  </button>
-                  <button
-                    className={classNames(
-                      "rounded-xl px-4 py-2 text-sm transition",
-                      cart.length && !submitting ? "bg-gray-900 text-white hover:opacity-90" : "bg-gray-200 text-gray-500 cursor-not-allowed"
-                    )}
-                    disabled={!cart.length || submitting}
-                    onClick={submitOrder}
-                  >
-                    {submitting ? "Отправка…" : "Отправить заказ"}
-                  </button>
+            {/* Корзина */}
+            <div className="mt-8">
+              <div className="rounded-2xl border border-gray-100 bg-white p-4">
+                <div className="flex items-center justify-between flex-wrap gap-3">
+                  <div className="font-semibold">Корзина</div>
+                  <div className="text-sm text-gray-600">
+                    {cart.length ? (<>
+                      Позиции: <b>{cart.length}</b> · Всего: <b>{cartTotalQty}</b> · Сумма: <b>{cartTotalSum.toFixed(2)}</b>
+                    </>) : "Корзина пуста"}
+                  </div>
                 </div>
 
-                {submitMsg && (
-                  <div
-                    className={classNames(
-                      "mt-3 rounded-xl px-3 py-2 text-sm",
-                      submitMsg.ok
-                        ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
-                        : "bg-amber-50 text-amber-800 border border-amber-200"
+                {cart.length > 0 && (
+                  <div className="mt-3 overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead className="text-left text-gray-500">
+                        <tr>
+                          <th className="py-2 pr-3">Товар</th>
+                          <th className="py-2 pr-3">Цена</th>
+                          <th className="py-2 pr-3">Остаток</th>
+                          <th className="py-2 pr-3">Кол-во</th>
+                          <th className="py-2 pr-3">Сумма</th>
+                          <th className="py-2"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {cart.map((r) => {
+                          const max = Number.isFinite(r?.stock) ? Math.max(0, Number(r.stock)) : 0;
+                          const price = Number(r?.price || 0);
+                          const qty = Number(r?.qty || 0);
+                          return (
+                            <tr key={r?.id || Math.random()} className="border-top border-gray-100">
+                              <td className="py-2 pr-3">
+                                <div className="font-medium">{r?.title || "—"}</div>
+                                <div className="text-xs text-gray-500">{r?.pack || ""}</div>
+                              </td>
+                              <td className="py-2 pr-3 whitespace-nowrap">{price.toFixed(2)}</td>
+                              <td className="py-2 pr-3 whitespace-nowrap">{max}</td>
+                              <td className="py-2 pr-3">
+                                <div className="flex items-center gap-2">
+                                  <button className="rounded-lg px-2 py-1 border border-gray-200" onClick={() => setQty(r?.id, (qty || 0) - 1)} aria-label="Убавить">−</button>
+                                  <input className="w-16 rounded-lg border border-gray-200 px-2 py-1 text-sm" type="number" min={0} max={max} value={qty} onChange={(e) => setQty(r?.id, e.target.value)} />
+                                  <button className="rounded-lg px-2 py-1 border border-gray-200" onClick={() => setQty(r?.id, Math.min(max, (qty || 0) + 1))} disabled={(qty || 0) >= max} aria-label="Прибавить">+</button>
+                                </div>
+                              </td>
+                              <td className="py-2 pr-3 whitespace-nowrap">{(price * qty).toFixed(2)}</td>
+                              <td className="py-2">
+                                <button className="rounded-lg px-3 py-1 border border-gray-200 hover:bg-gray-50" onClick={() => removeFromCart(r?.id)}>Удалить</button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+
+                    <div className="mt-4 flex items-center justify-between flex-wrap gap-3">
+                      <button className="rounded-xl px-4 py-2 text-sm border border-gray-200 hover:bg-gray-50" onClick={clearCart}>Очистить корзину</button>
+                      <button className={classNames("rounded-xl px-4 py-2 text-sm transition", cart.length && !submitting ? "bg-gray-900 text-white hover:opacity-90" : "bg-gray-200 text-gray-500 cursor-not-allowed")} disabled={!cart.length || submitting} onClick={submitOrder}>
+                        {submitting ? "Отправка…" : "Отправить заказ"}
+                      </button>
+                    </div>
+
+                    {submitMsg && (
+                      <div className={classNames("mt-3 rounded-xl px-3 py-2 text-sm", submitMsg.ok ? "bg-emerald-50 text-emerald-800 border border-emerald-200" : "bg-amber-50 text-amber-800 border border-amber-200")}>{submitMsg.text}</div>
                     )}
-                  >
-                    {submitMsg.text}
                   </div>
                 )}
               </div>
-            )}
-          </div>
-        </div>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
