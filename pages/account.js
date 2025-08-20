@@ -1,68 +1,46 @@
-// pages/account.js
 import React, { useEffect, useMemo, useState } from "react";
 
-// ---- простые утилиты/компоненты (локальные, без внешних зависимостей) ----
+// ---- утилиты ----
 const cx = (...a) => a.filter(Boolean).join(" ");
-
 const Card = ({ className = "", children }) => (
   <div className={cx("rounded-2xl border border-gray-200 bg-white p-4 shadow-sm", className)}>{children}</div>
 );
-
 const Button = ({ children, onClick, type = "button", variant = "solid", disabled = false, className = "" }) => {
-  const styles =
-    variant === "solid"
-      ? "bg-gray-900 text-white hover:opacity-90"
-      : variant === "outline"
-      ? "border border-gray-300 bg-white text-gray-900 hover:bg-gray-50"
-      : "bg-transparent text-gray-900 hover:bg-gray-100";
+  const styles = variant === "solid"
+    ? "bg-gray-900 text-white hover:opacity-90"
+    : variant === "outline"
+    ? "border border-gray-300 bg-white text-gray-900 hover:bg-gray-50"
+    : "bg-transparent text-gray-900 hover:bg-gray-100";
   return (
     <button
       type={type}
       onClick={onClick}
       disabled={disabled}
-      className={cx(
-        "inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-2 text-sm transition disabled:opacity-50",
-        styles,
-        className
-      )}
+      className={cx("inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-2 text-sm transition disabled:opacity-50", styles, className)}
     >
       {children}
     </button>
   );
 };
-
 const Field = ({ label, ...props }) => (
   <label className="grid gap-1 text-sm">
     <span className="text-gray-600">{label}</span>
-    <input
-      {...props}
-      className={cx(
-        "w-full rounded-xl border border-gray-300 px-3 py-2 text-sm",
-        "focus:outline-none focus:ring-2 focus:ring-gray-300"
-      )}
-    />
+    <input {...props} className={cx("w-full rounded-xl border border-gray-300 px-3 py-2 text-sm","focus:outline-none focus:ring-2 focus:ring-gray-300")} />
   </label>
 );
-
 const Badge = ({ children }) => (
-  <span className="inline-flex items-center rounded-full border border-gray-300 bg-white/70 px-3 py-1 text-xs text-gray-700">
-    {children}
-  </span>
+  <span className="inline-flex items-center rounded-full border border-gray-300 bg-white/70 px-3 py-1 text-xs text-gray-700">{children}</span>
 );
-
-// ---- мини-шапка, чтобы не конфликтовать с существующим AppShell ----
 const HeaderMini = () => (
   <div className="sticky top-0 z-10 border-b border-gray-100 bg-white/70 backdrop-blur">
     <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
-      <a href="/" className="font-semibold hover:underline">
-        kawa.by — МЭР ТРЕЙД
-      </a>
+      <a href="/" className="font-semibold hover:underline">kawa.by — МЭР ТРЕЙД</a>
       <div className="text-sm text-gray-600">Личный кабинет</div>
     </div>
   </div>
 );
 
-// ---- мок-данные заказов (пока без API) ----
+// ---- мок-данные заказов ----
 const MOCK_ORDERS = [
   {
     id: "ORD-2024-0012",
@@ -100,7 +78,7 @@ const MOCK_ORDERS = [
   },
 ];
 
-// ---- работа с localStorage.cart (массив позиций) ----
+// ---- localStorage.cart helpers ----
 function readCart() {
   if (typeof window === "undefined") return [];
   try {
@@ -112,82 +90,42 @@ function readCart() {
 }
 function writeCart(list) {
   if (typeof window === "undefined") return;
-  try {
-    localStorage.setItem("cart", JSON.stringify(list || []));
-  } catch {}
+  try { localStorage.setItem("cart", JSON.stringify(list || [])); } catch {}
 }
-
-// аккуратно добавляем позиции с учётом остатков
 function addItemsToCart(items) {
   const cart = readCart();
   const byId = new Map(cart.map((c) => [c.id, c]));
   const notes = [];
-
   items.forEach((it) => {
     const current = byId.get(it.id) || { ...it, qty: 0 };
     const want = current.qty + it.qty;
     const limit = typeof it.stock === "number" ? Math.max(0, it.stock) : want;
     const finalQty = Math.min(want, limit);
-    if (want > limit) {
-      notes.push(`«${it.title}» урезано до ${finalQty} (на складе ${limit})`);
-    }
+    if (want > limit) notes.push(`«${it.title}» урезано до ${finalQty} (на складе ${limit})`);
     byId.set(it.id, { ...current, qty: finalQty, price: it.price, title: it.title, stock: it.stock, category: it.category });
   });
-
   const next = Array.from(byId.values()).filter((x) => x.qty > 0);
   writeCart(next);
   return notes;
 }
 
-// ---- модалка ----
-const Modal = ({ open, onClose, children }) => {
-  if (!open) return null;
-  return (
-    <div className="fixed inset-0 z-40 grid place-items-center bg-black/40 p-3" onClick={onClose}>
-      <div
-        className="max-h-[85vh] w-full max-w-2xl overflow-auto rounded-2xl bg-white p-4 shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {children}
-      </div>
-    </div>
-  );
-};
-
-// ---- основная страница ----
+// ---- страница ----
 export default function AccountPage() {
   const [orders, setOrders] = useState(MOCK_ORDERS);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("");
-  const [show, setShow] = useState(null); // заказ для просмотра в модалке
+  const [show, setShow] = useState(null); // заказ в модалке
   const [toast, setToast] = useState(null);
 
-  useEffect(() => {
-    // setOrders(MOCK_ORDERS)
-  }, []);
+  useEffect(() => { /* тут позже подцепим /api/account/orders */ }, []);
 
-  const statuses = useMemo(
-    () => Array.from(new Set(orders.map((o) => o.status))).filter(Boolean),
-    [orders]
-  );
-
-  const filtered = useMemo(() => {
-    return orders.filter((o) => {
-      const okQ = !query || o.id.toLowerCase().includes(query.toLowerCase());
-      const okS = !status || o.status === status;
-      return okQ && okS;
-    });
-  }, [orders, query, status]);
-
+  const statuses = useMemo(() => Array.from(new Set(orders.map((o) => o.status))).filter(Boolean), [orders]);
+  const filtered = useMemo(() => orders.filter((o) => (!query || o.id.toLowerCase().includes(query.toLowerCase())) && (!status || o.status === status)), [orders, query, status]);
   const totalOrders = filtered.length;
 
   const handleReorder = (ord) => {
     const notes = addItemsToCart(ord.items);
-    setToast(
-      notes.length
-        ? `Добавлено в корзину (с ограничениями): ${notes.join(" · ")}`
-        : "Позиции заказа добавлены в корзину"
-    );
+    setToast(notes.length ? `Добавлено в корзину (с ограничениями): ${notes.join(" · ")}` : "Позиции заказа добавлены в корзину");
     setTimeout(() => setToast(null), 4500);
   };
 
@@ -205,26 +143,13 @@ export default function AccountPage() {
           </Card>
           <Card>
             <div className="text-sm text-gray-600">Поиск по номеру</div>
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Например, ORD-2024-0012"
-              className="mt-2 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300"
-            />
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Например, ORD-2024-0012" className="mt-2 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300" />
           </Card>
           <Card>
             <div className="text-sm text-gray-600">Статус</div>
-            <select
-              value={status}
-              onChange={(e) => setStatus(e.target.value)}
-              className="mt-2 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm"
-            >
+            <select value={status} onChange={(e) => setStatus(e.target.value)} className="mt-2 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm">
               <option value="">Все</option>
-              {statuses.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
+              {statuses.map((s) => (<option key={s} value={s}>{s}</option>))}
             </select>
           </Card>
         </div>
@@ -234,22 +159,13 @@ export default function AccountPage() {
             <Card key={o.id}>
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div className="grid gap-1">
-                  <div className="text-sm text-gray-600">
-                    № {o.id} • {o.date}
-                  </div>
-                  <div className="text-sm">
-                    Статус: <b>{o.status}</b>
-                  </div>
-                  <div className="text-sm">
-                    Сумма: <b>{o.total.toFixed(2)}</b> BYN
-                  </div>
+                  <div className="text-sm text-gray-600">№ {o.id} • {o.date}</div>
+                  <div className="text-sm">Статус: <b>{o.status}</b></div>
+                  <div className="text-sm">Сумма: <b>{o.total.toFixed(2)}</b> BYN</div>
                   {o.comment ? <div className="text-xs text-gray-500">Комментарий: {o.comment}</div> : null}
                 </div>
-
                 <div className="flex flex-wrap gap-2">
-                  <Button variant="outline" onClick={() => setShow(o)}>
-                    Просмотр
-                  </Button>
+                  <Button variant="outline" onClick={() => setShow(o)}>Просмотр</Button>
                   <Button onClick={() => handleReorder(o)}>Повторить заказ</Button>
                 </div>
               </div>
@@ -262,74 +178,69 @@ export default function AccountPage() {
         </div>
       </main>
 
-      <Modal open={!!show} onClose={() => setShow(null)}>
-        {show && (
-          <div className="grid gap-3">
-            <div className="flex items-start justify-between">
-              <div>
-                <div className="text-sm text-gray-600">Заказ</div>
-                <div className="text-lg font-semibold">№ {show.id}</div>
-                <div className="text-xs text-gray-500">{show.date} • {show.status}</div>
+      {/* Модалка */}
+      {show && (
+        <div className="fixed inset-0 z-40 grid place-items-center bg-black/40 p-3" onClick={() => setShow(null)}>
+          <div className="max-h-[85vh] w-full max-w-2xl overflow-auto rounded-2xl bg-white p-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="grid gap-3">
+              <div className="flex items-start justify-between">
+                <div>
+                  <div className="text-sm text-gray-600">Заказ</div>
+                  <div className="text-lg font-semibold">№ {show.id}</div>
+                  <div className="text-xs text-gray-500">{show.date} • {show.status}</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-sm text-gray-600">Итого</div>
+                  <div className="text-xl font-semibold">{show.total.toFixed(2)} BYN</div>
+                </div>
               </div>
-              <div className="text-right">
-                <div className="text-sm text-gray-600">Итого</div>
-                <div className="text-xl font-semibold">{show.total.toFixed(2)} BYN</div>
-              </div>
-            </div>
 
-            <div className="rounded-xl border border-gray-200">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50 text-gray-600">
-                  <tr>
-                    <th className="p-2 text-left">Товар</th>
-                    <th className="p-2 text-left">Категория</th>
-                    <th className="p-2 text-right">Цена</th>
-                    <th className="p-2 text-right">Кол-во</th>
-                    <th className="p-2 text-right">Остаток</th>
-                    <th className="p-2 text-right">Сумма</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {show.items.map((it) => (
-                    <tr key={it.id} className="border-t">
-                      <td className="p-2">{it.title}</td>
-                      <td className="p-2">{it.category || "—"}</td>
-                      <td className="p-2 text-right">{it.price.toFixed(2)}</td>
-                      <td className="p-2 text-right">{it.qty}</td>
-                      <td className="p-2 text-right">{typeof it.stock === "number" ? it.stock : "—"}</td>
-                      <td className="p-2 text-right">{(it.price * it.qty).toFixed(2)}</td>
+              <div className="rounded-xl border border-gray-200">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 text-gray-600">
+                    <tr>
+                      <th className="p-2 text-left">Товар</th>
+                      <th className="p-2 text-left">Категория</th>
+                      <th className="p-2 text-right">Цена</th>
+                      <th className="p-2 text-right">Кол-во</th>
+                      <th className="p-2 text-right">Остаток</th>
+                      <th className="p-2 text-right">Сумма</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {show.items.map((it) => (
+                      <tr key={it.id} className="border-t">
+                        <td className="p-2">{it.title}</td>
+                        <td className="p-2">{it.category || "—"}</td>
+                        <td className="p-2 text-right">{it.price.toFixed(2)}</td>
+                        <td className="p-2 text-right">{it.qty}</td>
+                        <td className="p-2 text-right">{typeof it.stock === "number" ? it.stock : "—"}</td>
+                        <td className="p-2 text-right">{(it.price * it.qty).toFixed(2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
 
-            {show.comment ? <div className="text-xs text-gray-500">Комментарий: {show.comment}</div> : null}
+              {show.comment ? <div className="text-xs text-gray-500">Комментарий: {show.comment}</div> : null}
 
-            <div className="flex flex-wrap gap-2 pt-2">
-              <Button variant="outline" onClick={() => setShow(null)}>
-                Закрыть
-              </Button>
-              <Button onClick={() => { handleReorder(show); setShow(null); }}>
-                Повторить заказ
-              </Button>
+              <div className="flex flex-wrap gap-2 pt-2">
+                <Button variant="outline" onClick={() => setShow(null)}>Закрыть</Button>
+                <Button onClick={() => { handleReorder(show); setShow(null); }}>Повторить заказ</Button>
+              </div>
             </div>
           </div>
-        )}
-      </Modal>
-
-      {/* Тост-уведомление */}
-      {toast && (
-        <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800 shadow">
-          {toast}
         </div>
       )}
 
-      {/* простой футер */}
+      {/* Тост */}
+      {toast && (
+        <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800 shadow">{toast}</div>
+      )}
+
+      {/* футер */}
       <div className="mt-10 border-t border-gray-100">
-        <div className="mx-auto max-w-7xl px-4 py-8 text-center text-sm text-gray-500">
-          © {new Date().getFullYear()} kawa.by (ООО «МЭР ТРЕЙД»)
-        </div>
+        <div className="mx-auto max-w-7xl px-4 py-8 text-center text-sm text-gray-500">© {new Date().getFullYear()} kawa.by (ООО «МЭР ТРЕЙД»)</div>
       </div>
 
       {/* базовые стили (если нет tailwind) */}
