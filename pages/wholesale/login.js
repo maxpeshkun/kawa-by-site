@@ -84,7 +84,7 @@ export default function WholesaleLogin() {
         {step === 2 && (
           <div className="mt-4 grid gap-3">
             <input
-              className="w-full rounded--xl border border-gray-200 px-3 py-2 text-sm"
+              className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
               placeholder="Код из письма (демо: 0000)"
               value={code}
               onChange={e => setCode(e.target.value)}
