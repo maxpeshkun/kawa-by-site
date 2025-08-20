@@ -1,6 +1,6 @@
 // pages/api/auth/me.js
-import { parseCookies } from "@/lib/cookies";
-import { getSession } from "@/lib/sessions";
+import { setCookie, parseCookies, clearCookie } from "../../lib/cookies";
+import { createSession, getSession, destroySession } from "../../lib/sessions"
 
 export default async function handler(req, res) {
   // мягкая проверка — всегда 200
