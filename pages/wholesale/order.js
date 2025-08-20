@@ -39,7 +39,7 @@ export default function WholesaleOrderPage() {
           <div className="text-xl font-semibold">Нужна авторизация</div>
           <div className="text-sm text-gray-600 mt-1">Чтобы оформить оптовый заказ, войдите в аккаунт.</div>
           <a
-            href={`/auth/login?next=${next}`}
+            <a href={`/wholesale/login?next=${next}`} ...>Войти</a>
             className="mt-4 inline-flex rounded-xl px-4 py-2 text-sm bg-gray-900 text-white hover:opacity-90"
           >
             Войти
