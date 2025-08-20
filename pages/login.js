@@ -1,74 +1,94 @@
-// pages/login.js
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/router";
 
 export default function LoginPage() {
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const router = useRouter();
+  const [error, setError] = useState("");
 
-  const handleSubmit = async (e) => {
+  // если уже авторизован через маг-код/куку — можно редиректнуть
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch("/api/auth/me", { cache: "no-store" });
+        const j = await r.json();
+        if (j?.authenticated || j?.user) {
+          const next = typeof router.query.next === "string" ? router.query.next : "/wholesale/account";
+          router.replace(next);
+        }
+      } catch {}
+    })();
+  }, [router]);
+
+  const onSubmit = async (e) => {
     e.preventDefault();
+    setError("");
     setLoading(true);
-    setError(null);
-
     try {
-      // 1) логин — установит cookie-сессию
-      const r = await fetch("/api/auth/login", {
+      const resp = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(j?.error || `HTTP ${r.status}`);
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok || !data?.ok) throw new Error(data?.error || "Неверный email или пароль");
 
-      // 2) проверка текущего пользователя
-      const me = await fetch("/api/auth/me", { cache: "no-store" }).then((x) => x.json());
-      if (!me?.auth) throw new Error("Auth failed");
-
-      // 3) редирект в кабинет
-      router.push("/dashboard");
+      // успешный вход: сессионная кука уже установлена на сервере
+      const next = typeof router.query.next === "string" ? router.query.next : "/wholesale/account";
+      router.push(next);
     } catch (e) {
-      setError(String(e.message || e));
+      setError(String(e?.message || e));
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-100">
-      <form onSubmit={handleSubmit} className="bg-white shadow-lg rounded-lg p-6 w-full max-w-sm">
-        <h2 className="text-2xl font-bold mb-4 text-center">Вход</h2>
+    <div className="min-h-screen grid place-items-center bg-gray-50 p-4">
+      <form onSubmit={onSubmit} className="w-full max-w-sm rounded-2xl bg-white border border-gray-100 p-6 shadow-sm">
+        <h1 className="text-2xl font-semibold text-center">Вход</h1>
+        <p className="mt-1 text-center text-sm text-gray-600">Демо-аккаунт: demo@kawa.by / demo123</p>
 
-        <input
-          type="email"
-          placeholder="Email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          className="w-full mb-3 p-2 border rounded"
-          required
-        />
+        {error && (
+          <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{error}</div>
+        )}
 
-        <input
-          type="password"
-          placeholder="Пароль"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          className="w-full mb-3 p-2 border rounded"
-          required
-        />
+        <div className="mt-4 grid gap-3">
+          <input
+            type="email"
+            placeholder="Email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
+          />
 
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 disabled:opacity-60"
-        >
-          {loading ? "Входим..." : "Войти"}
-        </button>
+          <input
+            type="password"
+            placeholder="Пароль"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
+          />
 
-        {error && <p className="text-red-500 mt-3 text-center">{error}</p>}
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full rounded-2xl bg-gray-900 px-4 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-50"
+          >
+            {loading ? "Входим…" : "Войти"}
+          </button>
+
+          <a
+            href="/wholesale/login"
+            className="text-center text-sm text-gray-700 underline"
+          >
+            Войти по коду (оптовый кабинет)
+          </a>
+        </div>
       </form>
     </div>
   );
