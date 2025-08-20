@@ -1,14 +1,18 @@
 // pages/api/auth/verify.js
-import { getCookies, setCookie } from "../../../lib/cookies";
 import { setSession, destroySession } from "../../../lib/sessions";
 
 export default async function handler(req, res) {
   if (req.method === "POST") {
+    // вход по коду (демо)
     try {
       const { email, code } = (typeof req.body === "string" ? JSON.parse(req.body) : req.body) || {};
-      if (!email || !/.+@.+\..+/.test(email)) return res.status(400).json({ error: "Укажите корректный email" });
-      if (code !== "0000") return res.status(400).json({ error: "Неверный код" });
-      // логиним по коду — создаём сессию
+      if (!email || !/.+@.+\..+/.test(email)) {
+        return res.status(400).json({ error: "Укажите корректный email" });
+      }
+      if (code !== "0000") {
+        return res.status(400).json({ error: "Неверный код" });
+      }
+      // создаём cookie-сессию
       setSession(res, { user: { id: "email:" + email, email } });
       return res.status(200).json({ ok: true });
     } catch (e) {
