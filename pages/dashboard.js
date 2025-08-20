@@ -1,27 +1,23 @@
+// pages/dashboard.js
 import { useEffect, useState } from "react";
 
 export default function Dashboard() {
-  const [user, setUser] = useState(null);
+  const [data, setData] = useState(null);
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (!token) return;
-
-    fetch("/api/auth/me", {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((res) => res.json())
-      .then((data) => setUser(data))
-      .catch((err) => console.error("Ошибка:", err));
+    fetch("/api/auth/me", { cache: "no-store" })
+      .then(r => r.json())
+      .then(j => setData(j))
+      .catch(() => setData({ auth: false, user: null }));
   }, []);
 
-  if (!user) {
-    return <p className="p-4">Загрузка...</p>;
-  }
+  if (!data) return <p className="p-4">Загрузка...</p>;
+  if (!data.auth) return <p className="p-4">Не авторизован</p>;
 
+  const user = data.user || {};
   return (
     <div className="p-6">
-      <h1 className="text-2xl font-bold">Добро пожаловать, {user.name || user.email}!</h1>
+      <h1 className="text-2xl font-bold">Добро пожаловать, {user.email}!</h1>
       <p className="mt-2">Это твой личный кабинет 👋</p>
     </div>
   );
