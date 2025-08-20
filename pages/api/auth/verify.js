@@ -1,19 +1,19 @@
-// pages/api/auth/verify.js
+// pages/api/auth/verify.js — uses lib/sessions (single cookie) 
 import { setSession, destroySession } from "../../../lib/sessions";
 
 export default async function handler(req, res) {
   if (req.method === "POST") {
-    // вход по коду (демо)
     try {
-      const { email, code } = (typeof req.body === "string" ? JSON.parse(req.body) : req.body) || {};
+      const body = typeof req.body === "string" ? JSON.parse(req.body) : (req.body || {});
+      const { email, code } = body;
       if (!email || !/.+@.+\..+/.test(email)) {
         return res.status(400).json({ error: "Укажите корректный email" });
       }
-      if (code !== "0000") {
+      if (String(code) !== "0000") {
         return res.status(400).json({ error: "Неверный код" });
       }
-      // создаём cookie-сессию
-      setSession(res, { user: { id: "email:" + email, email } });
+      // создаём сессию (одна кука sid, см. lib/sessions.js)
+      setSession(res, { user: { id: email, email } });
       return res.status(200).json({ ok: true });
     } catch (e) {
       return res.status(500).json({ error: "Verify error", details: String(e?.message || e) });
@@ -21,9 +21,12 @@ export default async function handler(req, res) {
   }
 
   if (req.method === "DELETE") {
-    // logout
-    destroySession(res);
-    return res.status(200).json({ ok: true });
+    try {
+      destroySession(res);
+      return res.status(200).json({ ok: true });
+    } catch (e) {
+      return res.status(500).json({ error: "Logout error", details: String(e?.message || e) });
+    }
   }
 
   res.setHeader("Allow", "POST, DELETE");
