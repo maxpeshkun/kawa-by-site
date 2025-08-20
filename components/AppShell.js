@@ -588,6 +588,7 @@ function LocationsPage() {
 
 // ---------- КАТАЛОГ: тянем с /api/b2b-products ----------
 function CatalogPage() {
+  // ВИТРИНА (B2C): показываем товары без цен/остатков
   const [cat, setCat] = useState("");
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(true);
@@ -599,12 +600,22 @@ function CatalogPage() {
     const load = async () => {
       setLoading(true); setErr(null);
       try {
-        const resp = await fetch(`/api/b2b-products`);
+        const resp = await fetch(`/api/b2b-products`, { cache: "no-store" });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const data = await resp.json();
         if (alive) setProducts(Array.isArray(data.products) ? data.products : []);
       } catch (e) {
-        if (alive) setErr(String(e?.message || e));
+        // запасной вариант: почитать из публичного файла, если API недоступен
+        try {
+          const r2 = await fetch("/data/demo-products.json", { cache: "no-store" });
+          const d2 = await r2.json();
+          if (alive) {
+            setProducts(Array.isArray(d2) ? d2 : []);
+            setErr("(Показана демонстрационная витрина — API временно недоступен)");
+          }
+        } catch {
+          if (alive) setErr(String(e?.message || e));
+        }
       } finally {
         if (alive) setLoading(false);
       }
@@ -613,17 +624,24 @@ function CatalogPage() {
     return () => { alive = false; };
   }, []);
 
-  const cats = useMemo(() => Array.from(new Set(products.map(p => p.category))).filter(Boolean), [products]);
+  const cats = useMemo(
+    () => Array.from(new Set(products.map(p => p?.category).filter(Boolean))),
+    [products]
+  );
 
   const filtered = useMemo(() =>
     products.filter(p =>
-      (!cat || p.category === cat) &&
-      (!q || (p.title || "").toLowerCase().includes(q.toLowerCase()))
-    ), [products, cat, q]);
+      (!cat || p?.category === cat) &&
+      (!q || (p?.title || "").toLowerCase().includes(q.toLowerCase()) ||
+             (p?.brand || "").toLowerCase().includes(q.toLowerCase()) ||
+             (p?.pack || "").toLowerCase().includes(q.toLowerCase()))
+    ), [products, cat, q]
+  );
 
   return (
     <div className="mx-auto max-w-7xl px-4">
       <div className="mt-6 grid md:grid-cols-4 gap-3">
+        {/* Фильтры */}
         <div>
           <Card>
             <div className="font-semibold mb-3">Фильтры</div>
@@ -637,7 +655,7 @@ function CatalogPage() {
                 <input
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
-                  placeholder="Название товара"
+                  placeholder="Название, бренд, упаковка…"
                   className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300"
                 />
               </div>
@@ -645,37 +663,44 @@ function CatalogPage() {
           </Card>
         </div>
 
+        {/* Сетка карточек */}
         <div className="md:col-span-3 grid gap-3">
-          {loading && <Card>Загрузка каталога…</Card>}
-          {err && <Card className="border-amber-300 bg-amber-50">Ошибка загрузки: {err}</Card>}
-
+          {loading && <Card>Загрузка витрины…</Card>}
+          {err && <Card className="border-amber-300 bg-amber-50">Внимание: {err}</Card>}
           {!loading && !err && filtered.length === 0 && (
             <Card>Ничего не найдено. Измени фильтры.</Card>
           )}
 
-          {!loading && !err && filtered.map((p) => (
-            <Card key={p.id}>
+          {!loading && filtered.map((p) => (
+            <Card key={p?.id || `${p?.title}-${p?.pack}`}>
               <div className="flex items-start gap-3">
                 <div className="h-16 w-16 rounded-xl bg-gray-100 grid place-items-center overflow-hidden">
-                  {p.image ? <img src={p.image} alt={p.title} className="object-cover w-full h-full" /> : <Store />}
+                  {p?.image
+                    ? <img src={p.image} alt={p?.title || "Товар"} className="object-cover w-full h-full" />
+                    : <Store />
+                  }
                 </div>
-                <div className="flex-1">
-                  <div className="font-semibold">{p.title}</div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-semibold truncate">{p?.title || "—"}</div>
                   <div className="text-sm text-gray-600">
-                    {(p.category || "—")} {p.brand ? ` • ${p.brand}` : ""} {p.pack ? ` • ${p.pack}` : ""}
+                    {(p?.category || "—")}{p?.brand ? ` • ${p.brand}` : ""}{p?.pack ? ` • ${p.pack}` : ""}
                   </div>
-                  {(p.tags?.length > 0) && (
+                  {(p?.tags?.length > 0) && (
                     <div className="mt-2 flex gap-2 flex-wrap">
                       {p.tags.map((t) => <Badge key={t}>{t}</Badge>)}
                     </div>
                   )}
-                  <div className="mt-2 text-sm text-gray-800">
-                    {p.price ? `Цена: ${p.price}` : ""}
-                    {p.stock != null ? `  · Остаток: ${p.stock}` : ""}
-                  </div>
+
+                  {/* Витрина: без цен и остатков */}
                   <div className="mt-3 flex gap-2">
-                    <Button variant="outline"><MapPin size={16} /> Где купить</Button>
-                    <Button><Factory size={16} /> Запросить оптовую цену</Button>
+                    <a className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm border border-gray-200 bg-white hover:bg-gray-50"
+                       href="#locations">
+                      <MapPin size={16} /> Где купить
+                    </a>
+                    <a className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm bg-gray-900 text-white hover:opacity-90"
+                       href="/wholesale/login">
+                      <Factory size={16} /> Запросить опт
+                    </a>
                   </div>
                 </div>
               </div>
@@ -686,6 +711,7 @@ function CatalogPage() {
     </div>
   );
 }
+
 
 // ---------- ОПТ: единая заявка (прайс + регистрация) ----------
 function WholesalePage() {
