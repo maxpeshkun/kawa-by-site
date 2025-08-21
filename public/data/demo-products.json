@@ -5,13 +5,11 @@
     "category": "Кофе",
     "brand": "KAWA",
     "pack": "1 кг",
-    "tags": [
-      "зерно",
-      "арабика"
-    ],
+    "tags": ["зерно","арабика"],
     "price": 25.9,
     "stock": 120,
-    "image": ""
+    "image": "",
+    "barcode": "4601234567890"
   },
   {
     "id": "2",
@@ -19,12 +17,11 @@
     "category": "Чай",
     "brand": "KAWA",
     "pack": "100 пак.",
-    "tags": [
-      "чёрный"
-    ],
+    "tags": ["чёрный"],
     "price": 7.9,
     "stock": 342,
-    "image": ""
+    "image": "",
+    "barcode": "4609876501234"
   },
   {
     "id": "3",
@@ -32,11 +29,10 @@
     "category": "Бытовая химия",
     "brand": "CleanUp",
     "pack": "500 мл",
-    "tags": [
-      "эко"
-    ],
+    "tags": ["эко"],
     "price": 3.2,
     "stock": 87,
-    "image": ""
+    "image": "",
+    "barcode": "4699999000001"
   }
 ]
