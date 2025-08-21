@@ -4,10 +4,61 @@ import { Search, Filter, ShoppingCart, Minus, Plus, Barcode, UserCircle2, ArrowR
 
 const STORAGE_KEY = "kawa.cart.v2";
 
+// ====== Умная картинка по штрихкоду (EAN) с фолбэками ======
+function eanToPath(ean) {
+  // для OpenFoodFacts нужно разбивать на /XXX/XXX/XXX/XXXX
+  const s = String(ean || "").replace(/\D/g, "");
+  if (s.length < 8) return null;
+  return [s.slice(0, 3), s.slice(3, 6), s.slice(6, 9), s.slice(9)].filter(Boolean).join("/");
+}
+function candidatesByBarcode(ean) {
+  const s = String(ean || "").trim();
+  const offPath = eanToPath(s);
+  const list = [
+    // 1) локальные файлы в /public/images/products
+    `/images/products/${s}.webp`,
+    `/images/products/${s}.jpg`,
+    `/images/products/${s}.png`,
+  ];
+  // 2) OpenFoodFacts (если есть карточка)
+  if (offPath) {
+    list.push(
+      `https://images.openfoodfacts.org/images/products/${offPath}/front.400.jpg`,
+      `https://images.openfoodfacts.org/images/products/${offPath}/front_en.400.jpg`
+    );
+  }
+  // 3) как крайний случай — само изображение штрихкода (EAN-13)
+  list.push(`https://barcode.tec-it.com/barcode.ashx?data=${encodeURIComponent(s)}&code=EAN13&translate-esc=off`);
+  return list;
+}
+function SmartImg({ barcode, alt = "", className = "" }) {
+  const [idx, setIdx] = useState(0);
+  const cands = useMemo(() => candidatesByBarcode(barcode), [barcode]);
+  const src = cands[Math.min(idx, cands.length - 1)];
+  return (
+    <img
+      src={src}
+      alt={alt}
+      className={className}
+      onError={() => setIdx((i) => (i + 1 < cands.length ? i + 1 : i))}
+      loading="lazy"
+    />
+  );
+}
+
+// ====== DEMO товары (без прямых ссылок на картинки; фото берём по barcode) ======
+const PRODUCTS = [
+  { id: "p1", title: "KAWA Espresso 1kg", brand: "KAWA", pack_qty: "12 шт", category: "Кофе", price: 25.9, barcode: "4601234567890", stock: 120 },
+  { id: "p2", title: "KAWA Arabica 500g", brand: "KAWA", pack_qty: "24 шт", category: "Кофе", price: 15.9, barcode: "4601234567891", stock: 80 },
+  { id: "p3", title: "KAWA Black Tea 100", brand: "KAWA", pack_qty: "12 шт", category: "Чай", price: 7.9, barcode: "4609876501234", stock: 340 },
+  { id: "p4", title: "KAWA Green Tea 50", brand: "KAWA", pack_qty: "24 шт", category: "Чай", price: 5.5, barcode: "4609876501235", stock: 260 },
+  { id: "p5", title: "CleanUp Средство 500мл", brand: "CleanUp", pack_qty: "12 шт", category: "Бытовая химия", price: 3.2, barcode: "4699999000001", stock: 90 },
+  { id: "p6", title: "CleanUp Порошок 1кг", brand: "CleanUp", pack_qty: "12 шт", category: "Бытовая химия", price: 4.9, barcode: "4699999000002", stock: 55 },
+];
+
 // утилиты
 const currency = (n) =>
   Number(n || 0).toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
 const getJSON = (k, fb) => {
   if (typeof window === "undefined") return fb;
   try {
@@ -23,7 +74,7 @@ const setJSON = (k, v) => {
   } catch {}
 };
 
-// -------------------- Родитель: только проверка авторизации --------------------
+// -------------------- Родитель: проверка авторизации --------------------
 export default function WholesaleOrderPage() {
   const [user, setUser] = useState(undefined); // undefined = загрузка, null = не авторизован, {email} = ок
 
@@ -65,42 +116,28 @@ export default function WholesaleOrderPage() {
     );
   }
 
-  // авторизован → экран заказа
   return <OrderScreen user={user} />;
 }
 
 // -------------------- Дочерний: каталог, фильтры, корзина --------------------
 function OrderScreen({ user }) {
-  // DEMO товары (можно заменить на /api/b2b-products)
-  const PRODUCTS = [
-    { id: "p1", title: "KAWA Espresso 1kg", brand: "KAWA", pack_qty: "12 шт", category: "Кофе", price: 25.9, barcode: "4601234567890", img: "/img/coffee1.jpg", stock: 120 },
-    { id: "p2", title: "KAWA Arabica 500g", brand: "KAWA", pack_qty: "24 шт", category: "Кофе", price: 15.9, barcode: "4601234567891", img: "/img/coffee2.jpg", stock: 80 },
-    { id: "p3", title: "KAWA Black Tea 100", brand: "KAWA", pack_qty: "12 шт", category: "Чай", price: 7.9, barcode: "4609876501234", img: "/img/tea1.jpg", stock: 340 },
-    { id: "p4", title: "KAWA Green Tea 50", brand: "KAWA", pack_qty: "24 шт", category: "Чай", price: 5.5, barcode: "4609876501235", img: "/img/tea2.jpg", stock: 260 },
-    { id: "p5", title: "CleanUp Средство 500мл", brand: "CleanUp", pack_qty: "12 шт", category: "Бытовая химия", price: 3.2, barcode: "4699999000001", img: "/img/chem1.jpg", stock: 90 },
-    { id: "p6", title: "CleanUp Порошок 1кг", brand: "CleanUp", pack_qty: "12 шт", category: "Бытовая химия", price: 4.9, barcode: "4699999000002", img: "/img/chem2.jpg", stock: 55 },
-  ];
-
-  // состояние
   const [q, setQ] = useState("");
   const [cat, setCat] = useState("");
-  const [cart, setCart] = useState(() => getJSON(STORAGE_KEY, [])); // массив позиций [{id,title,price,qty,stock,pack_qty,image}]
+  const [cart, setCart] = useState(() => getJSON(STORAGE_KEY, [])); // [{id,title,price,qty,stock,pack_qty,barcode}]
   const [showCart, setShowCart] = useState(false);
 
-  // сохранить корзину
   useEffect(() => setJSON(STORAGE_KEY, cart), [cart]);
 
-  // индексы/итоги
   const cartIndex = useMemo(() => {
     const m = new Map();
     cart.forEach((r, i) => m.set(r.id, i));
     return m;
   }, [cart]);
+
   const items = cart;
   const totalQty = useMemo(() => cart.reduce((s, r) => s + (r.qty || 0), 0), [cart]);
   const totalSum = useMemo(() => cart.reduce((s, r) => s + (Number(r.price || 0) * (r.qty || 0)), 0), [cart]);
 
-  // фильтр
   const filtered = useMemo(() => {
     const qq = q.trim().toLowerCase();
     return PRODUCTS.filter(
@@ -113,7 +150,7 @@ function OrderScreen({ user }) {
     );
   }, [q, cat]);
 
-  // операции с корзиной (без отображения числа на карточке, с ограничением по stock)
+  // операции с корзиной (лимит по stock, число на карточке НЕ показываем)
   function add(p, delta = 1) {
     const idx = cartIndex.get(p.id);
     const max = Number.isFinite(p.stock) ? Math.max(0, Number(p.stock)) : Infinity;
@@ -122,7 +159,7 @@ function OrderScreen({ user }) {
       if (qty <= 0) return;
       setCart((prev) => [
         ...prev,
-        { id: p.id, title: p.title, price: p.price, qty, stock: p.stock, pack_qty: p.pack_qty, image: p.img },
+        { id: p.id, title: p.title, price: p.price, qty, stock: p.stock, pack_qty: p.pack_qty, barcode: p.barcode },
       ]);
     } else {
       setCart((prev) => {
@@ -181,14 +218,16 @@ function OrderScreen({ user }) {
         </div>
       </div>
 
-      {/* СПИСОК: одна колонка, мобильный-first */}
+      {/* СПИСОК: одна колонка, мобайл-first */}
       <div className="mx-auto max-w-md px-2 py-3 grid gap-3">
         {filtered.map((p) => (
           <div key={p.id} className="rounded-2xl border border-gray-200 bg-white p-3 shadow-sm flex flex-col gap-2">
-            <img src={p.img} alt={p.title} className="w-full h-40 object-cover rounded-lg" />
+            <SmartImg barcode={p.barcode} alt={p.title} className="w-full h-40 object-cover rounded-lg" />
             <div className="text-base font-semibold">{p.title}</div>
             <div className="text-xs text-gray-600 uppercase">{p.category}</div>
-            <div className="text-sm text-gray-600">{p.brand} • в упаковке {p.pack_qty}</div>
+            <div className="text-sm text-gray-600">
+              {p.brand} • в упаковке {p.pack_qty}
+            </div>
             <div className="flex items-center gap-2 text-sm text-gray-700">
               <span className="font-semibold">{currency(p.price)}</span>
               <span className="inline-flex items-center gap-1 text-gray-600">
@@ -276,7 +315,9 @@ function OrderScreen({ user }) {
                       <Plus size={14} />
                     </button>
                   </div>
-                  <div className="w-16 text-right font-semibold text-xs sm:text-sm">{currency(r.qty * (r.price || 0))}</div>
+                  <div className="w-16 text-right font-semibold text-xs sm:text-sm">
+                    {currency(r.qty * (r.price || 0))}
+                  </div>
                   <button onClick={() => remove(r.id)} className="inline-flex items-center gap-1 text-red-600 text-xs">
                     <X size={12} />
                     Удалить
