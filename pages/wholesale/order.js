@@ -4,7 +4,26 @@ import { Search, Filter, ShoppingCart, Minus, Plus, Barcode, UserCircle2, ArrowR
 
 const STORAGE_KEY = "kawa.cart.v2";
 
-// -------------------- РОДИТЕЛЬ: проверка авторизации --------------------
+// утилиты
+const currency = (n) =>
+  Number(n || 0).toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+const getJSON = (k, fb) => {
+  if (typeof window === "undefined") return fb;
+  try {
+    const raw = localStorage.getItem(k);
+    return raw ? JSON.parse(raw) : fb;
+  } catch {
+    return fb;
+  }
+};
+const setJSON = (k, v) => {
+  try {
+    localStorage.setItem(k, JSON.stringify(v));
+  } catch {}
+};
+
+// -------------------- Родитель: только проверка авторизации --------------------
 export default function WholesaleOrderPage() {
   const [user, setUser] = useState(undefined); // undefined = загрузка, null = не авторизован, {email} = ок
 
@@ -19,7 +38,9 @@ export default function WholesaleOrderPage() {
         if (alive) setUser(null);
       }
     })();
-    return () => { alive = false; };
+    return () => {
+      alive = false;
+    };
   }, []);
 
   if (user === undefined) {
@@ -44,13 +65,13 @@ export default function WholesaleOrderPage() {
     );
   }
 
-  // авторизован → показываем экран заказа
+  // авторизован → экран заказа
   return <OrderScreen user={user} />;
 }
 
-// -------------------- ДОЧЕРНИЙ: экран заказа (каталог, фильтры, корзина) --------------------
+// -------------------- Дочерний: каталог, фильтры, корзина --------------------
 function OrderScreen({ user }) {
-  // DEMO-товары (можно заменить на /api/b2b-products)
+  // DEMO товары (можно заменить на /api/b2b-products)
   const PRODUCTS = [
     { id: "p1", title: "KAWA Espresso 1kg", brand: "KAWA", pack_qty: "12 шт", category: "Кофе", price: 25.9, barcode: "4601234567890", img: "/img/coffee1.jpg", stock: 120 },
     { id: "p2", title: "KAWA Arabica 500g", brand: "KAWA", pack_qty: "24 шт", category: "Кофе", price: 15.9, barcode: "4601234567891", img: "/img/coffee2.jpg", stock: 80 },
@@ -60,33 +81,16 @@ function OrderScreen({ user }) {
     { id: "p6", title: "CleanUp Порошок 1кг", brand: "CleanUp", pack_qty: "12 шт", category: "Бытовая химия", price: 4.9, barcode: "4699999000002", img: "/img/chem2.jpg", stock: 55 },
   ];
 
-  const currency = (n) =>
-    Number(n || 0).toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-  // фильтры
+  // состояние
   const [q, setQ] = useState("");
   const [cat, setCat] = useState("");
+  const [cart, setCart] = useState(() => getJSON(STORAGE_KEY, [])); // массив позиций [{id,title,price,qty,stock,pack_qty,image}]
+  const [showCart, setShowCart] = useState(false);
 
-  // корзина: массив [{id,title,price,qty,stock,pack_qty,image}]
-  const [cart, setCart] = useState(() => {
-    if (typeof window === "undefined") return [];
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      const parsed = raw ? JSON.parse(raw) : [];
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  });
+  // сохранить корзину
+  useEffect(() => setJSON(STORAGE_KEY, cart), [cart]);
 
-  // сохраняем корзину
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(cart));
-    } catch {}
-  }, [cart]);
-
-  // индекс по id, итоги
+  // индексы/итоги
   const cartIndex = useMemo(() => {
     const m = new Map();
     cart.forEach((r, i) => m.set(r.id, i));
@@ -96,7 +100,7 @@ function OrderScreen({ user }) {
   const totalQty = useMemo(() => cart.reduce((s, r) => s + (r.qty || 0), 0), [cart]);
   const totalSum = useMemo(() => cart.reduce((s, r) => s + (Number(r.price || 0) * (r.qty || 0)), 0), [cart]);
 
-  // список по фильтрам
+  // фильтр
   const filtered = useMemo(() => {
     const qq = q.trim().toLowerCase();
     return PRODUCTS.filter(
@@ -109,7 +113,7 @@ function OrderScreen({ user }) {
     );
   }, [q, cat]);
 
-  // операции с корзиной (без отображения числа на карточке, но с ограничением по stock)
+  // операции с корзиной (без отображения числа на карточке, с ограничением по stock)
   function add(p, delta = 1) {
     const idx = cartIndex.get(p.id);
     const max = Number.isFinite(p.stock) ? Math.max(0, Number(p.stock)) : Infinity;
@@ -135,15 +139,13 @@ function OrderScreen({ user }) {
     setCart((prev) => prev.filter((r) => r.id !== id));
   }
 
-  // нижний виджет: не открывать корзину, если пусто
-  const [showCart, setShowCart] = useState(false);
   useEffect(() => {
     if (totalQty === 0) setShowCart(false);
   }, [totalQty]);
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Sticky top search/filter */}
+      {/* ВЕРХ: поиск/фильтр (sticky) */}
       <div className="sticky top-0 z-20 border-b border-gray-200 bg-white/90 backdrop-blur">
         <div className="mx-auto max-w-6xl px-4 py-3 space-y-2">
           <div className="text-lg font-semibold">Оформление оптового заказа</div>
@@ -179,7 +181,7 @@ function OrderScreen({ user }) {
         </div>
       </div>
 
-      {/* Product list one-column (мобильный-first) */}
+      {/* СПИСОК: одна колонка, мобильный-first */}
       <div className="mx-auto max-w-md px-2 py-3 grid gap-3">
         {filtered.map((p) => (
           <div key={p.id} className="rounded-2xl border border-gray-200 bg-white p-3 shadow-sm flex flex-col gap-2">
@@ -213,7 +215,7 @@ function OrderScreen({ user }) {
         ))}
       </div>
 
-      {/* Bottom sticky cart widget mobile-first */}
+      {/* НИЖНИЙ ВИДЖЕТ: корзина/сумма/переходы (sticky) */}
       <div className="sticky bottom-0 z-30 border-t border-gray-200 bg-white/95 backdrop-blur">
         <div className="mx-auto max-w-md px-3 py-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3 text-sm">
@@ -238,7 +240,7 @@ function OrderScreen({ user }) {
               href="/wholesale/checkout"
               className={
                 "inline-flex items-center gap-1 rounded-xl px-2 py-1 text-sm " +
-                (totalQty === 0 ? "bg-gray-200 text-gray-500" : "bg-gray-900 text-white hover:opacity-90")
+                (totalQty === 0 ? "bg-gray-200 text-gray-500 pointer-events-none" : "bg-gray-900 text-white hover:opacity-90")
               }
               aria-disabled={totalQty === 0}
             >
@@ -274,9 +276,7 @@ function OrderScreen({ user }) {
                       <Plus size={14} />
                     </button>
                   </div>
-                  <div className="w-16 text-right font-semibold text-xs sm:text-sm">
-                    {currency(r.qty * (r.price || 0))}
-                  </div>
+                  <div className="w-16 text-right font-semibold text-xs sm:text-sm">{currency(r.qty * (r.price || 0))}</div>
                   <button onClick={() => remove(r.id)} className="inline-flex items-center gap-1 text-red-600 text-xs">
                     <X size={12} />
                     Удалить
