@@ -1,129 +1,89 @@
 // pages/wholesale/checkout.js
-import React, { useMemo, useState, useEffect } from "react";
-import Link from "next/link";
+import React, { useEffect, useMemo, useState } from "react";
+import { ArrowLeft, ArrowRight, Minus, Plus, Barcode } from "lucide-react";
 import { getJSON, setJSON } from "@/lib/safeStorage";
 
 const STORAGE_KEY = "kawa.cart.v1";
-const rub = (n) => Number(n || 0).toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const money = (n) => Number(n||0).toLocaleString("ru-RU",{minimumFractionDigits:2, maximumFractionDigits:2});
 
-export default function WholesaleCheckout() {
-  const [user, setUser] = useState(undefined);
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const r = await fetch("/api/auth/me", { cache: "no-store" });
-        const j = r.ok ? await r.json().catch(() => ({})) : null;
-        if (alive) setUser(j?.user || null);
-      } catch { if (alive) setUser(null); }
-    })();
-    return () => { alive = false; };
-  }, []);
-
+export default function CheckoutPage() {
   const [cart, setCart] = useState(() => getJSON(STORAGE_KEY, []));
-  const totalQty = useMemo(() => cart.reduce((s, r) => s + (Number(r?.qty) || 0), 0), [cart]);
-  const totalSum = useMemo(() => cart.reduce((s, r) => s + (Number(r?.price) || 0) * (Number(r?.qty) || 0), 0), [cart]);
+  useEffect(()=> setJSON(STORAGE_KEY, cart), [cart]);
 
-  const [submitting, setSubmitting] = useState(false);
-  const [result, setResult] = useState(null); // {ok, orderId|text}
+  const totalQty = useMemo(()=> cart.reduce((s,r)=> s + (Number(r.qty)||0), 0), [cart]);
+  const totalSum = useMemo(()=> cart.reduce((s,r)=> s + (Number(r.qty)||0)*(Number(r.price)||0), 0), [cart]);
 
-  async function submit() {
-    if (!cart.length) return;
-    setSubmitting(true);
-    setResult(null);
-    try {
-      const payload = {
-        user: { email: user?.email || "" },
-        items: cart.map(r => ({ id: r?.id, qty: Number(r?.qty) || 0, price: Number(r?.price) || 0 })),
-        total_qty: totalQty,
-        total_sum: totalSum,
-        meta: { source: "kawa.by", at: new Date().toISOString() },
-      };
-      const resp = await fetch("/api/cart-submit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-      const data = await resp.json().catch(() => ({}));
-      if (!resp.ok) throw new Error(data?.error || `HTTP ${resp.status}`);
-      setResult({ ok: true, orderId: data?.received ? "DEMO" : "—" });
-      setCart([]); setJSON(STORAGE_KEY, []); // очистить корзину
-    } catch (e) {
-      setResult({ ok: false, text: String(e?.message || e) });
-    } finally { setSubmitting(false); }
-  }
-
-  if (user === undefined) return <div className="min-h-screen grid place-items-center text-gray-600">Загрузка…</div>;
-  if (user === null) return (
-    <div className="min-h-screen grid place-items-center p-4">
-      <div className="rounded-2xl border border-gray-100 bg-white p-6 text-center">
-        Нужна авторизация. <Link className="underline" href="/wholesale/login">Войти</Link>
-      </div>
-    </div>
-  );
+  const setQty = (id, q) => setCart(prev => {
+    const i = prev.findIndex(r=>r.id===id); if (i<0) return prev;
+    const row = {...prev[i]}; const qty = Math.max(0, Number(q||0));
+    const next = [...prev]; if (qty===0) next.splice(i,1); else next[i]={...row, qty};
+    return next;
+  });
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900">
-      <div className="mx-auto max-w-7xl px-4 py-6">
-        <div className="flex items-end justify-between flex-wrap gap-2">
-          <h1 className="text-2xl md:text-3xl font-bold">Оформление заказа</h1>
-          <div className="text-sm text-gray-600">Вы вошли как <b>{user?.email}</b></div>
+    <div className="min-h-screen bg-gradient-to-b from-white to-gray-50 text-gray-900">
+      <div className="mx-auto max-w-3xl px-4 py-4">
+        <div className="flex items-center justify-between">
+          <a href="/wholesale/order" className="inline-flex items-center gap-2 text-sm text-gray-700">
+            <ArrowLeft size={16}/> Назад к каталогу
+          </a>
+          <div className="text-base md:text-lg font-semibold">Оформление заказа</div>
+          <div className="w-24" />
         </div>
 
-        {cart.length === 0 && !result && (
-          <div className="mt-4 rounded-2xl border border-gray-100 bg-white p-4">
-            Корзина пуста. <Link className="underline" href="/wholesale/order">Вернуться к каталогу</Link>
-          </div>
-        )}
+        <div className="mt-4 rounded-2xl border border-gray-100 bg-white p-4">
+          {cart.length === 0 && <div className="text-sm text-gray-600">Корзина пуста. Добавьте товары в каталоге.</div>}
 
-        {cart.length > 0 && (
-          <div className="mt-4 rounded-2xl border border-gray-100 bg-white p-4">
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-sm">
-                <thead className="text-gray-600 bg-gray-50">
-                  <tr>
-                    <th className="p-2 text-left">Товар</th>
-                    <th className="p-2 text-left">Упаковка</th>
-                    <th className="p-2 text-right">Цена</th>
-                    <th className="p-2 text-right">Кол-во</th>
-                    <th className="p-2 text-right">Сумма</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {cart.map((r) => (
-                    <tr key={r?.id} className="border-t">
-                      <td className="p-2">{r?.title}</td>
-                      <td className="p-2">{r?.pack || "—"}</td>
-                      <td className="p-2 text-right">{rub(r?.price)}</td>
-                      <td className="p-2 text-right">{r?.qty}</td>
-                      <td className="p-2 text-right">{rub((Number(r?.price)||0)*(Number(r?.qty)||0))}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <div className="mt-4 text-right text-sm">
-                Позиции: <b>{cart.length}</b> • Всего: <b>{totalQty}</b> • Сумма: <b>{rub(totalSum)}</b>
+          {cart.map((r)=>(
+            <div key={r.id} className="flex items-center gap-3 py-2 border-b last:border-b-0">
+              <div className="flex-1 min-w-0">
+                <div className="font-medium truncate">{r.title}</div>
+                <div className="text-xs text-gray-600">
+                  {r.pack_qty ? <>В упаковке: <b>{r.pack_qty} шт</b> • </> : null}
+                  {r.brand ? <>{r.brand} • </> : null}
+                  {r.barcode && <span className="inline-flex items-center gap-1"><Barcode size={14}/>{r.barcode}</span>}
+                </div>
               </div>
+              <div className="w-24 text-right text-sm">{money(r.price)}</div>
+              <div className="flex items-center gap-2">
+                <button onClick={()=>setQty(r.id, Number(r.qty||0)-1)} disabled={(Number(r.qty||0))===0} className="h-8 w-8 rounded-lg border border-gray-200">−</button>
+                <input type="number" min={0} value={Number(r.qty||0)} onChange={e=>setQty(r.id, e.target.value)} className="w-16 text-center rounded-lg border border-gray-200 px-2 py-1 text-sm h-8"/>
+                <button onClick={()=>setQty(r.id, Number(r.qty||0)+1)} className="h-8 w-8 rounded-lg border border-gray-200">+</button>
+              </div>
+              <div className="w-28 text-right font-semibold">{money((Number(r.qty||0)*Number(r.price||0)))}</div>
             </div>
+          ))}
+        </div>
 
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-              <Link href="/wholesale/order" className="rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm">Вернуться к товарам</Link>
-              <button
-                onClick={submit}
-                disabled={submitting}
-                className="rounded-xl bg-gray-900 text-white px-4 py-2 text-sm"
-              >
-                {submitting ? "Отправка…" : "Подтвердить заказ"}
-              </button>
-            </div>
+        <div className="mt-4 rounded-2xl border border-gray-100 bg-white p-4 grid gap-3">
+          <div className="flex items-center justify-between text-sm">
+            <div>Позиций: <b>{cart.length}</b></div>
+            <div>Всего шт: <b>{totalQty}</b></div>
+            <div>Итого: <b>{money(totalSum)}</b></div>
           </div>
-        )}
 
-        {result && (
-          <div className={result.ok
-            ? "mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-800"
-            : "mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-800"}>
-            {result.ok
-              ? <>Заявка отправлена! Номер (демо): <b>{result.orderId}</b>. <Link className="underline" href="/wholesale/account">Перейти в личный кабинет</Link>.</>
-              : <>Не удалось отправить: {result.text}</>}
+          {/* Заглушка формы данных покупателя */}
+          <div className="grid md:grid-cols-2 gap-3">
+            <input className="rounded-xl border border-gray-200 px-3 py-2 text-sm" placeholder="Компания*" />
+            <input className="rounded-xl border border-gray-200 px-3 py-2 text-sm" placeholder="Email*" />
+            <input className="rounded-xl border border-gray-200 px-3 py-2 text-sm" placeholder="Телефон*" />
+            <input className="rounded-xl border border-gray-200 px-3 py-2 text-sm" placeholder="Комментарий к заказу" />
           </div>
-        )}
+
+          <div className="flex items-center justify-between gap-3">
+            <a href="/wholesale/order" className="inline-flex items-center gap-2 rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm">
+              <ArrowLeft size={16}/> Вернуться в каталог
+            </a>
+            <button
+              disabled={cart.length===0}
+              onClick={()=> alert("Заявка отправлена (заглушка). Тут вызов /api/orders или /api/cart-submit")}
+              className={cart.length ? "inline-flex items-center gap-2 rounded-xl bg-gray-900 text-white px-4 py-2 text-sm hover:opacity-90"
+                                     : "inline-flex items-center gap-2 rounded-xl bg-gray-200 text-gray-500 px-4 py-2 text-sm cursor-not-allowed"}
+            >
+              Отправить заказ <ArrowRight size={16}/>
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
